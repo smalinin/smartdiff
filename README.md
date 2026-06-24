@@ -14,7 +14,7 @@ uv run smartdiff C:\left\file.py C:\right\file.py
 
 ## Build EXE
 
-Nuitka can build a standalone Windows `.exe` with bundled PySide6/Qt files:
+Nuitka can build a Windows onefile `.exe` and Linux/macOS release builds:
 
 ```powershell
 uv run --with nuitka python -m nuitka smartdiff_nuitka_windows.py
@@ -26,8 +26,8 @@ uv run --with nuitka python -m nuitka smartdiff_nuitka_macos.py
 
 Launchers:
 
-- `smartdiff_nuitka_windows.py` builds the Windows standalone executable in `dist/nuitka_windows`
-  with the PySide6 plugin and hidden console window.
+- `smartdiff_nuitka_windows.py` builds a Windows onefile `SmartDiff.exe` in
+  `dist/nuitka_windows` with the PySide6 plugin and hidden console window.
 - `smartdiff_nuitka_linux.py` builds the Linux onefile executable in
   `dist/nuitka_linux`. The GitHub Actions Linux release build runs on
   `ubuntu-22.04` for broader glibc compatibility.

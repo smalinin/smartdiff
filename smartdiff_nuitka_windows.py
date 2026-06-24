@@ -1,4 +1,4 @@
-# nuitka-project: --mode=standalone
+# nuitka-project: --onefile
 # nuitka-project: --enable-plugin=pyside6
 # nuitka-project: --output-dir=dist/nuitka_windows
 # nuitka-project: --remove-output
