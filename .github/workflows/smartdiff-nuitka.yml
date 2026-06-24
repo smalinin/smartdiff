@@ -55,7 +55,14 @@ jobs:
       - name: Verify Python sources
         run: uv run python -m compileall src smartdiff_nuitka_windows.py smartdiff_nuitka_linux.py smartdiff_nuitka_macos.py smartdiff_nuitka_macos_x86.py
 
-      - name: Build with Nuitka
+      - name: Build with Nuitka (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: uv run --with nuitka python -m nuitka ${{ matrix.launcher }}
+
+      - name: Build with Nuitka (non-macOS)
+        if: runner.os != 'macOS'
         run: uv run --with nuitka python -m nuitka ${{ matrix.launcher }}
 
       - name: Pack Windows artifact

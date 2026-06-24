@@ -33,13 +33,17 @@ Launchers:
   `ubuntu-22.04` for broader glibc compatibility.
 - `smartdiff_nuitka_macos.py` builds the macOS `.app` bundle in
   `dist/nuitka_macos` for Apple Silicon. `smartdiff_nuitka_macos_x86.py`
-  builds the Intel `x86_64` variant in `dist/nuitka_macos_x86`.
+  builds the Intel `x86_64` variant in `dist/nuitka_macos_x86`. Release builds
+  target `macOS >= 11.0`.
 
 A C compiler is required; on Windows, Visual Studio 2022 Build Tools is the safest
 choice. On macOS, use the system Clang compiler from Xcode.
 
 GitHub Actions builds release artifacts on tag pushes matching `v*`. You can also
 run the `SmartDiff Nuitka` workflow manually for build verification.
+
+For local macOS release-compatible builds, set `MACOSX_DEPLOYMENT_TARGET=11.0`
+before running Nuitka.
 
 ## Current Features
 
