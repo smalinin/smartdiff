@@ -2,6 +2,10 @@
 
 Python + PySide6 diff viewer and merge program.
 
+![chart1](https://raw.githubusercontent.com/smalinin/smartdiff/main/scr1.png)
+![chart2](https://raw.githubusercontent.com/smalinin/smartdiff/main/scr2.png)
+
+
 ## Run
 
 ```powershell
