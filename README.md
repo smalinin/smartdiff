@@ -1,6 +1,6 @@
 # SmartDiff
 
-Python 3.12 + PySide6 variant of SmartSyncClone managed by uv.
+Python + PySide6 diff viewer and merge program.
 
 ## Run
 
