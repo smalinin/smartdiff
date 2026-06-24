@@ -1,6 +1,6 @@
 [project]
 name = "smartdiff"
-version = "0.1.2"
+version = "0.1.3"
 description = "Python + PySide6 diff viewer and merge program."
 license = { file = "LICENSE" }
 authors = [
