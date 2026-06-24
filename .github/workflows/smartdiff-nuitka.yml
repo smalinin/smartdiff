@@ -24,7 +24,7 @@ jobs:
             artifact_path: dist/nuitka_windows
             archive_name: SmartDiff-windows.zip
           - name: Linux
-            os: ubuntu-latest
+            os: ubuntu-22.04
             launcher: smartdiff_nuitka_linux.py
             artifact_path: dist/nuitka_linux
             archive_name: SmartDiff-linux.tar.gz

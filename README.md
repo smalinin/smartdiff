@@ -29,15 +29,17 @@ Launchers:
 - `smartdiff_nuitka_windows.py` builds the Windows standalone executable in `dist/nuitka_windows`
   with the PySide6 plugin and hidden console window.
 - `smartdiff_nuitka_linux.py` builds the Linux onefile executable in
-  `dist/nuitka_linux`.
+  `dist/nuitka_linux`. The GitHub Actions Linux release build runs on
+  `ubuntu-22.04` for broader glibc compatibility.
 - `smartdiff_nuitka_macos.py` builds the macOS `.app` bundle in
-  `dist/nuitka_macos` as a `universal2` binary for both Apple Silicon and Intel Macs.
+  `dist/nuitka_macos` for Apple Silicon. `smartdiff_nuitka_macos_x86.py`
+  builds the Intel `x86_64` variant in `dist/nuitka_macos_x86`.
 
 A C compiler is required; on Windows, Visual Studio 2022 Build Tools is the safest
 choice. On macOS, use the system Clang compiler from Xcode.
 
-GitHub Actions also builds Nuitka artifacts on Windows, Linux, and macOS; run the
-`SmartDiff Nuitka` workflow manually or on a push/PR that touches SmartDiff.
+GitHub Actions builds release artifacts on tag pushes matching `v*`. You can also
+run the `SmartDiff Nuitka` workflow manually for build verification.
 
 ## Current Features
 
