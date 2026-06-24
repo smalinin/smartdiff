@@ -1,4 +1,3 @@
-# nuitka-project: --mode=standalone
 # nuitka-project: --enable-plugin=pyside6
 # nuitka-project: --output-dir=dist/nuitka_macos
 # nuitka-project: --remove-output

@@ -43,6 +43,11 @@ jobs:
             launcher: smartdiff_nuitka_macos.py
             artifact: SmartDiff-macOS-Nuitka
             artifact_path: dist/nuitka_macos
+          - name: macOS x86
+            os: macos-latest
+            launcher: smartdiff_nuitka_macos_x86.py
+            artifact: SmartDiff-macOS_x86-Nuitka
+            artifact_path: dist/nuitka_macos_x86
 
     steps:
       - name: Checkout
@@ -58,7 +63,7 @@ jobs:
         run: python -m pip install uv
 
       - name: Verify Python sources
-        run: uv run python -m compileall src smartdiff_nuitka_windows.py smartdiff_nuitka_linux.py smartdiff_nuitka_macos.py
+        run: uv run python -m compileall src smartdiff_nuitka_windows.py smartdiff_nuitka_linux.py smartdiff_nuitka_macos.py  smartdiff_nuitka_macos_x86.py
 
       - name: Build with Nuitka
         run: uv run --with nuitka python -m nuitka ${{ matrix.launcher }}
