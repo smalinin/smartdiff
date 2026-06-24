@@ -1,6 +1,6 @@
 [project]
 name = "smartdiff"
-version = "0.2.0"
+version = "0.2.1"
 description = "Python + PySide6 diff viewer and merge program."
 license = { file = "LICENSE" }
 authors = [
@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "PySide6>=6.7",
+    "PySide6==6.7.3",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

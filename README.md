@@ -45,6 +45,10 @@ run the `SmartDiff Nuitka` workflow manually for build verification.
 For local macOS release-compatible builds, set `MACOSX_DEPLOYMENT_TARGET=11.0`
 before running Nuitka.
 
+The project is pinned to `PySide6==6.7.3` because newer PyPI wheels such as
+`6.11.1` target newer macOS versions and break `macOS 11.0` compatibility for
+release builds.
+
 ## Current Features
 
 - Compare two directories or two files.
