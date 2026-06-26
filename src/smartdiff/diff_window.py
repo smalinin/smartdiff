@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import difflib
+from bisect import bisect_left
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1085,8 +1086,9 @@ class DiffWindow(QMainWindow):
 
     def _logical_lines(self, side: str) -> list[str]:
         edit = self.left_edit if side == "left" else self.right_edit
-        spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
-        return [line for index, line in enumerate(edit.toPlainText().split("\n")) if index not in spacers]
+        lines = edit.toPlainText().split("\n")
+        spacers = self._effective_spacers(side, lines)
+        return [line for index, line in enumerate(lines) if index not in spacers]
 
     def _logical_text(self, side: str) -> str:
         return "\n".join(self._logical_lines(side))
@@ -1179,18 +1181,31 @@ class DiffWindow(QMainWindow):
             return 0
         return block.position() + min(column, len(block.text()))
 
+    def _declared_spacers(self, side: str) -> set[int]:
+        return self.left_spacer_lines if side == "left" else self.right_spacer_lines
+
+    def _effective_spacers(self, side: str, lines: list[str] | None = None) -> set[int]:
+        spacers = self._declared_spacers(side)
+        if not spacers:
+            return spacers
+        if lines is None:
+            edit = self.left_edit if side == "left" else self.right_edit
+            lines = edit.toPlainText().split("\n")
+        return {index for index in spacers if index >= len(lines) or lines[index] == ""}
+
     def _display_line_to_logical(self, side: str, display_line: int) -> int | None:
-        spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
+        spacers = self._effective_spacers(side)
         if display_line in spacers:
             return None
         return sum(1 for index in range(display_line) if index not in spacers)
 
     def _logical_line_to_display(self, side: str, logical_line: int) -> int:
         edit = self.left_edit if side == "left" else self.right_edit
-        spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
+        lines = edit.toPlainText().split("\n")
+        spacers = self._effective_spacers(side, lines)
         current_logical = 0
         last_non_spacer = 0
-        for display_line in range(edit.document().blockCount()):
+        for display_line in range(len(lines)):
             if display_line in spacers:
                 continue
             last_non_spacer = display_line
@@ -1200,7 +1215,7 @@ class DiffWindow(QMainWindow):
         return last_non_spacer
 
     def _display_range_to_logical(self, side: str, start: int, end: int) -> tuple[int, int]:
-        spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
+        spacers = self._effective_spacers(side)
         logical_start = sum(1 for index in range(start) if index not in spacers)
         logical_end = logical_start + sum(1 for index in range(start, end) if index not in spacers)
         return logical_start, logical_end
@@ -1427,9 +1442,33 @@ def build_diff_view(
     list[InlineStyle],
     list[DiffBlock],
 ]:
+    return _build_line_diff_view(
+        left_lines,
+        right_lines,
+        ignore_whitespace=ignore_whitespace,
+        ignore_case=ignore_case,
+        theme=theme,
+    )
+
+
+def _build_line_diff_view(
+    left_lines: list[str],
+    right_lines: list[str],
+    *,
+    ignore_whitespace: bool,
+    ignore_case: bool,
+    theme: Theme,
+) -> tuple[
+    list[str],
+    list[str],
+    set[int],
+    set[int],
+    list[DiffLineStyle],
+    list[InlineStyle],
+    list[DiffBlock],
+]:
     normalized_left = [_normalize(line, ignore_whitespace, ignore_case) for line in left_lines]
     normalized_right = [_normalize(line, ignore_whitespace, ignore_case) for line in right_lines]
-    matcher = difflib.SequenceMatcher(None, normalized_left, normalized_right, autojunk=False)
     left_display: list[str] = []
     right_display: list[str] = []
     left_spacers: set[int] = set()
@@ -1438,7 +1477,7 @@ def build_diff_view(
     inline_styles: list[InlineStyle] = []
     diff_blocks: list[DiffBlock] = []
 
-    for tag, left_start, left_end, right_start, right_end in matcher.get_opcodes():
+    for tag, left_start, left_end, right_start, right_end in _build_patience_opcodes(normalized_left, normalized_right):
         if tag == "equal":
             left_display.extend(left_lines[left_start:left_end])
             right_display.extend(right_lines[right_start:right_end])
@@ -1494,6 +1533,175 @@ def build_diff_view(
         diff_blocks.append(DiffBlock(tag, block_left_start, block_left_end, block_right_start, block_right_end))
 
     return left_display, right_display, left_spacers, right_spacers, line_styles, inline_styles, diff_blocks
+
+
+def _build_patience_opcodes(left_lines: list[str], right_lines: list[str]) -> list[tuple[str, int, int, int, int]]:
+    opcodes: list[tuple[str, int, int, int, int]] = []
+    _append_patience_opcodes(opcodes, left_lines, right_lines, 0, len(left_lines), 0, len(right_lines))
+    return _merge_adjacent_opcodes(opcodes)
+
+
+def _append_patience_opcodes(
+    opcodes: list[tuple[str, int, int, int, int]],
+    left_lines: list[str],
+    right_lines: list[str],
+    left_start: int,
+    left_end: int,
+    right_start: int,
+    right_end: int,
+) -> None:
+    prefix_left_start = left_start
+    prefix_right_start = right_start
+    while left_start < left_end and right_start < right_end and left_lines[left_start] == right_lines[right_start]:
+        left_start += 1
+        right_start += 1
+    if prefix_left_start != left_start:
+        opcodes.append(("equal", prefix_left_start, left_start, prefix_right_start, right_start))
+
+    suffix_left_end = left_end
+    suffix_right_end = right_end
+    while left_start < left_end and right_start < right_end and left_lines[left_end - 1] == right_lines[right_end - 1]:
+        left_end -= 1
+        right_end -= 1
+
+    if left_start == left_end:
+        if right_start != right_end:
+            opcodes.append(("insert", left_start, left_end, right_start, right_end))
+    elif right_start == right_end:
+        opcodes.append(("delete", left_start, left_end, right_start, right_end))
+    else:
+        anchors = _patience_anchor_pairs(left_lines, right_lines, left_start, left_end, right_start, right_end)
+        if anchors:
+            previous_left = left_start
+            previous_right = right_start
+            for anchor_left, anchor_right in anchors:
+                _append_patience_opcodes(
+                    opcodes,
+                    left_lines,
+                    right_lines,
+                    previous_left,
+                    anchor_left,
+                    previous_right,
+                    anchor_right,
+                )
+                opcodes.append(("equal", anchor_left, anchor_left + 1, anchor_right, anchor_right + 1))
+                previous_left = anchor_left + 1
+                previous_right = anchor_right + 1
+            _append_patience_opcodes(
+                opcodes,
+                left_lines,
+                right_lines,
+                previous_left,
+                left_end,
+                previous_right,
+                right_end,
+            )
+        else:
+            matcher = difflib.SequenceMatcher(
+                None,
+                left_lines[left_start:left_end],
+                right_lines[right_start:right_end],
+                autojunk=False,
+            )
+            for tag, local_left_start, local_left_end, local_right_start, local_right_end in matcher.get_opcodes():
+                if tag == "equal" and local_left_start == local_left_end:
+                    continue
+                opcodes.append(
+                    (
+                        tag,
+                        left_start + local_left_start,
+                        left_start + local_left_end,
+                        right_start + local_right_start,
+                        right_start + local_right_end,
+                    )
+                )
+
+    if left_end != suffix_left_end:
+        opcodes.append(("equal", left_end, suffix_left_end, right_end, suffix_right_end))
+
+
+def _patience_anchor_pairs(
+    left_lines: list[str],
+    right_lines: list[str],
+    left_start: int,
+    left_end: int,
+    right_start: int,
+    right_end: int,
+) -> list[tuple[int, int]]:
+    left_unique = _unique_line_positions(left_lines, left_start, left_end)
+    right_unique = _unique_line_positions(right_lines, right_start, right_end)
+    common_pairs = sorted(
+        (left_index, right_unique[line])
+        for line, left_index in left_unique.items()
+        if line in right_unique
+    )
+    return _longest_increasing_pairs(common_pairs)
+
+
+def _unique_line_positions(lines: list[str], start: int, end: int) -> dict[str, int]:
+    positions: dict[str, int] = {}
+    duplicates: set[str] = set()
+    for index in range(start, end):
+        line = lines[index]
+        if line in duplicates:
+            continue
+        if line in positions:
+            positions.pop(line, None)
+            duplicates.add(line)
+            continue
+        positions[line] = index
+    return positions
+
+
+def _longest_increasing_pairs(pairs: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    if not pairs:
+        return []
+
+    tails: list[int] = []
+    tail_values: list[int] = []
+    previous: list[int] = [-1] * len(pairs)
+
+    for pair_index, (_left_index, right_index) in enumerate(pairs):
+        tail_index = bisect_left(tail_values, right_index)
+        if tail_index > 0:
+            previous[pair_index] = tails[tail_index - 1]
+        if tail_index == len(tails):
+            tails.append(pair_index)
+            tail_values.append(right_index)
+        else:
+            tails[tail_index] = pair_index
+            tail_values[tail_index] = right_index
+
+    result: list[tuple[int, int]] = []
+    current = tails[-1]
+    while current >= 0:
+        result.append(pairs[current])
+        current = previous[current]
+    result.reverse()
+    return result
+
+
+def _merge_adjacent_opcodes(
+    opcodes: list[tuple[str, int, int, int, int]],
+) -> list[tuple[str, int, int, int, int]]:
+    merged: list[tuple[str, int, int, int, int]] = []
+    for opcode in opcodes:
+        tag, left_start, left_end, right_start, right_end = opcode
+        if left_start == left_end and right_start == right_end:
+            continue
+        if merged:
+            previous_tag, previous_left_start, previous_left_end, previous_right_start, previous_right_end = merged[-1]
+            if previous_tag == tag and previous_left_end == left_start and previous_right_end == right_start:
+                merged[-1] = (
+                    previous_tag,
+                    previous_left_start,
+                    left_end,
+                    previous_right_start,
+                    right_end,
+                )
+                continue
+        merged.append(opcode)
+    return merged
 
 
 def _inline_diff(left: str, right: str, left_line: int, right_line: int) -> list[InlineStyle]:
