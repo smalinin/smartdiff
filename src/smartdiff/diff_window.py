@@ -64,6 +64,17 @@ class FindMatch:
     end: int
 
 
+@dataclass(frozen=True)
+class CursorSnapshot:
+    position_logical_line: int | None
+    position_display_line: int
+    position_column: int
+    anchor_logical_line: int | None
+    anchor_display_line: int
+    anchor_column: int
+    had_selection: bool
+
+
 class LineNumberArea(QWidget):
     def __init__(self, editor: "CodeEditor") -> None:
         super().__init__(editor)
@@ -1094,9 +1105,9 @@ class DiffWindow(QMainWindow):
 
         self._loading = True
         if self.left_edit.toPlainText() != left_text:
-            self._replace_text(self.left_edit, left_text)
+            self._replace_text("left", self.left_edit, left_text)
         if self.right_edit.toPlainText() != right_text:
-            self._replace_text(self.right_edit, right_text)
+            self._replace_text("right", self.right_edit, right_text)
         self._loading = False
 
         self.left_edit.document().setModified(left_modified)
@@ -1104,14 +1115,89 @@ class DiffWindow(QMainWindow):
         self.left_edit.verticalScrollBar().setValue(min(left_scroll, self.left_edit.verticalScrollBar().maximum()))
         self.right_edit.verticalScrollBar().setValue(min(right_scroll, self.right_edit.verticalScrollBar().maximum()))
 
-    @staticmethod
-    def _replace_text(edit: QPlainTextEdit, new_text: str) -> None:
+    def _replace_text(self, side: str, edit: QPlainTextEdit, new_text: str) -> None:
+        snapshot = self._capture_cursor_snapshot(side, edit.textCursor())
+
         cursor = edit.textCursor()
         cursor.beginEditBlock()
         cursor.select(QTextCursor.SelectionType.Document)
         cursor.insertText(new_text)
         cursor.endEditBlock()
-        edit.setTextCursor(cursor)
+
+        self._restore_cursor_snapshot(side, edit, snapshot)
+
+    def _capture_cursor_snapshot(self, side: str, cursor: QTextCursor) -> CursorSnapshot:
+        anchor_cursor = QTextCursor(cursor)
+        anchor_cursor.setPosition(cursor.anchor())
+        return CursorSnapshot(
+            position_logical_line=self._display_line_to_logical(side, cursor.blockNumber()),
+            position_display_line=cursor.blockNumber(),
+            position_column=cursor.positionInBlock(),
+            anchor_logical_line=self._display_line_to_logical(side, anchor_cursor.blockNumber()),
+            anchor_display_line=anchor_cursor.blockNumber(),
+            anchor_column=anchor_cursor.positionInBlock(),
+            had_selection=cursor.hasSelection(),
+        )
+
+    def _restore_cursor_snapshot(self, side: str, edit: QPlainTextEdit, snapshot: CursorSnapshot) -> None:
+        restored_cursor = edit.textCursor()
+        anchor_position = self._cursor_position_from_snapshot(
+            side,
+            edit,
+            snapshot.anchor_logical_line,
+            snapshot.anchor_display_line,
+            snapshot.anchor_column,
+        )
+        position = self._cursor_position_from_snapshot(
+            side,
+            edit,
+            snapshot.position_logical_line,
+            snapshot.position_display_line,
+            snapshot.position_column,
+        )
+        restored_cursor.setPosition(anchor_position)
+        restored_cursor.setPosition(
+            position,
+            QTextCursor.MoveMode.KeepAnchor if snapshot.had_selection else QTextCursor.MoveMode.MoveAnchor,
+        )
+        edit.setTextCursor(restored_cursor)
+
+    def _cursor_position_from_snapshot(
+        self,
+        side: str,
+        edit: QPlainTextEdit,
+        logical_line: int | None,
+        display_line: int,
+        column: int,
+    ) -> int:
+        if logical_line is None:
+            target_line = min(display_line, max(0, edit.document().blockCount() - 1))
+        else:
+            target_line = self._logical_line_to_display(side, logical_line)
+        block = edit.document().findBlockByNumber(target_line)
+        if not block.isValid():
+            return 0
+        return block.position() + min(column, len(block.text()))
+
+    def _display_line_to_logical(self, side: str, display_line: int) -> int | None:
+        spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
+        if display_line in spacers:
+            return None
+        return sum(1 for index in range(display_line) if index not in spacers)
+
+    def _logical_line_to_display(self, side: str, logical_line: int) -> int:
+        edit = self.left_edit if side == "left" else self.right_edit
+        spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
+        current_logical = 0
+        last_non_spacer = 0
+        for display_line in range(edit.document().blockCount()):
+            if display_line in spacers:
+                continue
+            last_non_spacer = display_line
+            if current_logical == logical_line:
+                return display_line
+            current_logical += 1
+        return last_non_spacer
 
     def _display_range_to_logical(self, side: str, start: int, end: int) -> tuple[int, int]:
         spacers = self.left_spacer_lines if side == "left" else self.right_spacer_lines
@@ -1159,7 +1245,7 @@ class DiffWindow(QMainWindow):
             target_lines.append("")
 
         target_lines[start:end] = source_lines[start:min(end, len(source_lines))]
-        self._replace_text(target_edit, "\n".join(target_lines))
+        self._replace_text(target_side, target_edit, "\n".join(target_lines))
         target_edit.document().setModified(True)
         self.recompare()
 
