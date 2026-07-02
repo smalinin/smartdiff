@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
+from .app_info import APP_NAME, about_text
 from .theme import DARK_THEME, LIGHT_THEME, Theme
 
 
@@ -739,8 +740,8 @@ class DiffWindow(QMainWindow):
         about_action.triggered.connect(
             lambda: QMessageBox.about(
                 self,
-                "About SmartDiff",
-                "SmartDiff\nPython 3.12 + PySide6 diff viewer.",
+                f"About {APP_NAME}",
+                about_text(),
             )
         )
         help_menu.addAction(about_action)
@@ -1343,10 +1344,7 @@ class DiffWindow(QMainWindow):
         event.accept()
 
     def _has_unsaved_changes(self) -> bool:
-        return (
-            self._logical_text("left") != self.left_original
-            or self._logical_text("right") != self.right_original
-        )
+        return self.left_edit.document().isModified() or self.right_edit.document().isModified()
 
     def _push_undo_snapshot(self) -> None:
         self._undo_stack.append((self._logical_text("left"), self._logical_text("right")))

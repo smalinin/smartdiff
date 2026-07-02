@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .app_info import APP_NAME, about_text
 from .app_settings import save_settings
 from .compare import compare_paths
 from .diff_window import DiffPreviewPanel, DiffWindow
@@ -214,7 +215,7 @@ class MainWindow(QMainWindow):
 
         help_menu = self.menuBar().addMenu("Help")
         about = QAction("About", self)
-        about.triggered.connect(lambda: QMessageBox.about(self, "About SmartDiff", "SmartDiff"))
+        about.triggered.connect(lambda: QMessageBox.about(self, f"About {APP_NAME}", about_text()))
         help_menu.addAction(about)
 
     def _browse(self, target: QLineEdit) -> None:
