@@ -467,7 +467,6 @@ class MainWindow(QMainWindow):
             is_too_large=record.is_too_large,
             binary_contents_equal=(
                 record.is_binary
-                and record.state == CompareState.EQUAL
                 and record.left_hash is not None
                 and record.left_hash == record.right_hash
             ),
