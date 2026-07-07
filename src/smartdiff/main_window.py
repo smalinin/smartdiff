@@ -231,6 +231,9 @@ class MainWindow(QMainWindow):
             target.setText(directory)
 
     def compare(self) -> None:
+        self._compare_and_refresh()
+
+    def _compare_and_refresh(self, retained_paths: set[str] | None = None) -> None:
         left = Path(self.left_input.text()).expanduser()
         right = Path(self.right_input.text()).expanduser()
         if not left.exists() or not right.exists():
@@ -244,7 +247,7 @@ class MainWindow(QMainWindow):
         allow_sync = self.result.is_directory_comparison
         self.sync_lr_button.setEnabled(allow_sync)
         self.sync_rl_button.setEnabled(allow_sync)
-        self.populate_table()
+        self.populate_table(retained_paths=retained_paths)
 
     def _sync(self, direction: SyncDirection) -> None:
         if self.result is None:
@@ -284,12 +287,16 @@ class MainWindow(QMainWindow):
         msg = ", ".join(parts) if parts else "Nothing to sync."
         QMessageBox.information(self, f"Sync {label} complete", msg)
 
-    def populate_table(self) -> None:
+    def populate_table(self, retained_paths: set[str] | None = None) -> None:
         if self.result is None:
             return
         previous_record = self._current_record()
         previous_path = previous_record.relative_path if previous_record else None
         self.table.clear()
+        if retained_paths is None or isinstance(retained_paths, bool):
+            retained_paths = set()
+        else:
+            retained_paths = set(retained_paths)
         is_dark = self.theme.name == "Dark"
         state_colors: dict[str, str] = {
             CompareState.DIFFERENT.value: "#f0b040" if is_dark else "#b06010",
@@ -315,7 +322,11 @@ class MainWindow(QMainWindow):
         entries = [
             item
             for item in self.result.entries
-            if not show_only_changes or item.state != CompareState.EQUAL
+            if (
+                not show_only_changes
+                or item.state != CompareState.EQUAL
+                or item.relative_path in retained_paths
+            )
         ]
 
         dir_nodes: dict[str, QTreeWidgetItem] = {}
@@ -498,7 +509,7 @@ class MainWindow(QMainWindow):
 
     def _on_diff_window_saved(self) -> None:
         if self.result is not None:
-            self.compare()
+            self._compare_and_refresh(retained_paths=self._visible_record_paths())
 
     def _current_record(self) -> FileRecord | None:
         item = self.table.currentItem()
@@ -518,6 +529,20 @@ class MainWindow(QMainWindow):
         else:
             self.table.setCurrentItem(None)
             self.preview_panel.clear()
+
+    def _visible_record_paths(self) -> set[str]:
+        paths: set[str] = set()
+
+        def visit(item: QTreeWidgetItem) -> None:
+            record = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(record, FileRecord):
+                paths.add(record.relative_path)
+            for index in range(item.childCount()):
+                visit(item.child(index))
+
+        for index in range(self.table.topLevelItemCount()):
+            visit(self.table.topLevelItem(index))
+        return paths
 
 
 def _format_side(size: int | None, mtime: float | None) -> str:

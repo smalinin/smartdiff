@@ -404,7 +404,7 @@ class DiffPreviewPanel(QWidget):
             message = "Directory. Text diff is not available."
         elif is_binary:
             if binary_contents_equal:
-                message = "Binary files have identical content. Text diff is not available, but the SHA-256 hash is the same."
+                message = "Binary files have identical content. Text diff is not available,\n but the SHA-256 hash is the same."
             else:
                 message = "Binary file. Text diff is not available."
         else:
