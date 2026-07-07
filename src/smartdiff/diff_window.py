@@ -13,6 +13,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QSize, Signa
 from PySide6.QtGui import QAction, QColor, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QStyle,
     QVBoxLayout,
     QWidget,
     QTextEdit,
@@ -769,13 +771,13 @@ class DiffWindow(QMainWindow):
 
     def reload_files(self) -> None:
         if self._has_unsaved_changes():
-            answer = QMessageBox.question(
-                self,
-                "Reload Files",
-                "All unsaved changes will be lost. Reload anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            answer = self._show_unsaved_changes_dialog(
+                prompt="Save changes before reloading?",
+                destructive_text="Reload without changes",
             )
-            if answer != QMessageBox.StandardButton.Yes:
+            if answer == "save":
+                self.save()
+            elif answer != "discard":
                 return
         self._undo_stack.clear()
         self._redo_stack.clear()
@@ -1343,23 +1345,101 @@ class DiffWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: ANN001
         if self._has_unsaved_changes():
-            answer = QMessageBox.question(
-                self,
-                "Unsaved changes",
-                "Save changes before closing?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
+            answer = self._show_unsaved_changes_dialog(
+                prompt="Save changes before closing?",
+                destructive_text="Close without changes",
             )
-            if answer == QMessageBox.StandardButton.Save:
+            if answer == "save":
                 self.save()
-            elif answer == QMessageBox.StandardButton.Cancel:
+            elif answer == "cancel":
                 event.ignore()
                 return
         event.accept()
 
     def _has_unsaved_changes(self) -> bool:
         return self.left_edit.document().isModified() or self.right_edit.document().isModified()
+
+    def _show_unsaved_changes_dialog(
+        self,
+        *,
+        prompt: str,
+        destructive_text: str,
+    ) -> str:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Unsaved changes")
+        dialog.setModal(True)
+        dialog.resize(430, 150)
+        dialog.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+
+        choice = "cancel"
+        icon_label = QLabel()
+        warning_icon = self._dialog_standard_icon("SP_MessageBoxWarning")
+        if warning_icon is not None:
+            icon_label.setPixmap(warning_icon.pixmap(32, 32))
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+
+        title_label = QLabel("Unsaved changes")
+        title_label.setStyleSheet("font-weight: 600;")
+        prompt_label = QLabel(prompt)
+        prompt_label.setWordWrap(True)
+        info_label = QLabel("Your edits will be lost if you continue without saving.")
+        info_label.setWordWrap(True)
+
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(6)
+        text_layout.addWidget(title_label)
+        text_layout.addWidget(prompt_label)
+        text_layout.addWidget(info_label)
+
+        content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(12)
+        content_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
+        content_layout.addLayout(text_layout, 1)
+
+        close_button = QPushButton(destructive_text)
+        cancel_button = QPushButton("Cancel")
+        save_button = QPushButton("Save")
+        _set_button_icon(close_button, self._dialog_standard_icon("SP_DialogCloseButton"))
+        _set_button_icon(cancel_button, self._dialog_standard_icon("SP_DialogCancelButton"))
+        _set_button_icon(save_button, self._dialog_standard_icon("SP_DialogSaveButton"))
+        save_button.setDefault(True)
+        save_button.setAutoDefault(True)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(8)
+        buttons_layout.addWidget(close_button)
+        buttons_layout.addWidget(cancel_button)
+        buttons_layout.addWidget(save_button)
+
+        root_layout = QVBoxLayout(dialog)
+        root_layout.setContentsMargins(16, 16, 16, 16)
+        root_layout.setSpacing(14)
+        root_layout.addLayout(content_layout)
+        root_layout.addLayout(buttons_layout)
+
+        def remember_choice(value: str) -> None:
+            nonlocal choice
+            choice = value
+
+        def choose(value: str) -> None:
+            remember_choice(value)
+            dialog.accept()
+
+        close_button.clicked.connect(lambda: choose("discard"))
+        cancel_button.clicked.connect(lambda: choose("cancel"))
+        save_button.clicked.connect(lambda: choose("save"))
+
+        dialog.exec()
+        return choice
+
+    def _dialog_standard_icon(self, standard_pixmap_name: str):  # noqa: ANN201
+        standard_pixmap = getattr(QStyle.StandardPixmap, standard_pixmap_name, None)
+        if standard_pixmap is None:
+            return None
+        return self.style().standardIcon(standard_pixmap)
 
     def _push_undo_snapshot(self) -> None:
         self._undo_stack.append((self._logical_text("left"), self._logical_text("right")))
@@ -1769,6 +1849,11 @@ def _read_text(path: Path) -> str:
 
 def _normalize_line_endings(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _set_button_icon(button: QPushButton, icon) -> None:  # noqa: ANN001
+    if icon is not None:
+        button.setIcon(icon)
 
 
 def _action_button(

@@ -8,7 +8,7 @@ import datetime as dt
 from pathlib import Path
 
 from PySide6.QtCore import QSignalBlocker, QRect, Qt
-from PySide6.QtGui import QAction, QColor, QPainter, QPen
+from PySide6.QtGui import QAction, QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStyle,
+    QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -83,6 +84,22 @@ class _FileTree(QTreeWidget):
         painter.restore()
 
 
+class _FileTreeItemDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index) -> None:  # type: ignore[override]
+        super().initStyleOption(option, index)
+        record = index.siblingAtColumn(0).data(Qt.ItemDataRole.UserRole)
+        if (
+            isinstance(record, FileRecord)
+            and record.state == CompareState.EQUAL
+            and option.state & QStyle.StateFlag.State_Selected
+        ):
+            foreground = index.data(Qt.ItemDataRole.ForegroundRole)
+            if isinstance(foreground, QColor):
+                option.palette.setColor(QPalette.ColorRole.HighlightedText, foreground)
+            elif foreground is not None and hasattr(foreground, "color"):
+                option.palette.setColor(QPalette.ColorRole.HighlightedText, foreground.color())
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
@@ -106,6 +123,7 @@ class MainWindow(QMainWindow):
         self.only_changes.setChecked(True)
         self.stats_label = QLabel("Total 0 | Equal 0 | Action req. 0")
         self.table = _FileTree()
+        self.table.setItemDelegate(_FileTreeItemDelegate(self.table))
         self.sync_lr_button = QPushButton("Sync L -> R")
         self.sync_rl_button = QPushButton("Sync L <- R")
         self.sync_lr_button.setObjectName("SyncButton")
@@ -427,6 +445,7 @@ class MainWindow(QMainWindow):
         window.show()
 
     def apply_theme(self, theme: Theme) -> None:
+        retained_paths = self._visible_record_paths() if self.result is not None else set()
         self.theme = theme
         previous_blocked = self.theme_action.blockSignals(True)
         self.theme_action.setChecked(theme.name == "Light")
@@ -440,7 +459,7 @@ class MainWindow(QMainWindow):
         if app:
             app.setStyleSheet(theme.stylesheet)
         self.preview_panel.apply_theme(theme)
-        self.populate_table()
+        self.populate_table(retained_paths=retained_paths)
 
     def _set_recurse(self, value: bool) -> None:
         self.recurse_subdirectories = value
@@ -455,7 +474,11 @@ class MainWindow(QMainWindow):
         if self.result is not None:
             self.compare()
 
-    def _on_selection_changed(self, current: "QTreeWidgetItem | None", _previous: "QTreeWidgetItem | None") -> None:
+    def _on_selection_changed(
+        self,
+        current: "QTreeWidgetItem | None",
+        _previous: "QTreeWidgetItem | None",
+    ) -> None:
         if current is None:
             self.preview_panel.clear()
             return
