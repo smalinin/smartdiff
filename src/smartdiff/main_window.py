@@ -7,7 +7,7 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QSignalBlocker, QRect, Qt
 from PySide6.QtGui import QAction, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,6 +37,9 @@ from .models import CompareOptions, CompareResult, CompareState, FileRecord
 from .settings_dialog import SettingsDialog
 from .sync import SyncDirection, sync_directories
 from .theme import DARK_THEME, LIGHT_THEME, Theme
+
+TREE_ITEM_KIND_ROLE = Qt.ItemDataRole.UserRole + 1
+TREE_ITEM_PATH_ROLE = Qt.ItemDataRole.UserRole + 2
 
 
 class _FileTree(QTreeWidget):
@@ -94,6 +97,8 @@ class MainWindow(QMainWindow):
         self.recurse_subdirectories = recurse_subdirectories
         self.theme = DARK_THEME
         self.diff_windows: list[DiffWindow] = []
+        self._collapsed_dir_paths: set[str] = set()
+        self._last_compare_roots: tuple[str, str] | None = None
 
         self.left_input = QLineEdit(str(left_path or ""))
         self.right_input = QLineEdit(str(right_path or ""))
@@ -177,6 +182,8 @@ class MainWindow(QMainWindow):
         self.table.setToolTip("Double-click to open in a new diff window")
         self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.table.currentItemChanged.connect(self._on_selection_changed)
+        self.table.itemExpanded.connect(self._on_item_expanded)
+        self.table.itemCollapsed.connect(self._on_item_collapsed)
 
         vsplit = QSplitter(Qt.Orientation.Vertical)
         vsplit.addWidget(self.table)
@@ -229,6 +236,10 @@ class MainWindow(QMainWindow):
         if not left.exists() or not right.exists():
             QMessageBox.warning(self, "Path not found", "Both paths must exist.")
             return
+        compare_roots = (str(left), str(right))
+        if compare_roots != self._last_compare_roots:
+            self._collapsed_dir_paths.clear()
+            self._last_compare_roots = compare_roots
         self.result = compare_paths(left, right, CompareOptions(self.recurse_subdirectories))
         allow_sync = self.result.is_directory_comparison
         self.sync_lr_button.setEnabled(allow_sync)
@@ -326,8 +337,8 @@ class MainWindow(QMainWindow):
             node.setIcon(0, folder_icon)
             for col in range(6):
                 node.setForeground(col, dir_color)
-            node.setExpanded(True)
-            node.setData(0, Qt.ItemDataRole.UserRole + 1, "dir")
+            node.setData(0, TREE_ITEM_KIND_ROLE, "dir")
+            node.setData(0, TREE_ITEM_PATH_ROLE, dir_path)
             dir_nodes[dir_path] = node
             return node
 
@@ -358,7 +369,7 @@ class MainWindow(QMainWindow):
             else:
                 tooltip = "Double-click to open in a new diff window"
 
-            file_item.setData(0, Qt.ItemDataRole.UserRole + 1, "dir" if is_directory else "file")
+            file_item.setData(0, TREE_ITEM_KIND_ROLE, "dir" if is_directory else "file")
             for col, val in enumerate(values):
                 file_item.setText(col, val)
                 file_item.setToolTip(col, tooltip)
@@ -376,6 +387,7 @@ class MainWindow(QMainWindow):
             file_nodes[record.relative_path] = file_item
 
         _sort_tree_directories_first(self.table)
+        self._apply_directory_expansion_state(dir_nodes)
         self._restore_or_clear_selection(previous_path, file_nodes)
         self.stats_label.setText(
             f"Total {len(self.result.entries)} | Equal {self.result.equal_count} | "
@@ -453,11 +465,37 @@ class MainWindow(QMainWindow):
             is_directory=is_directory,
             is_binary=record.is_binary,
             is_too_large=record.is_too_large,
+            binary_contents_equal=(
+                record.is_binary
+                and record.state == CompareState.EQUAL
+                and record.left_hash is not None
+                and record.left_hash == record.right_hash
+            ),
         )
 
     def _forget_window(self, window: DiffWindow) -> None:
         if window in self.diff_windows:
             self.diff_windows.remove(window)
+
+    def _tree_item_path(self, item: QTreeWidgetItem) -> str | None:
+        path = item.data(0, TREE_ITEM_PATH_ROLE)
+        return path if isinstance(path, str) else None
+
+    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
+        path = self._tree_item_path(item)
+        if path is not None:
+            self._collapsed_dir_paths.discard(path)
+
+    def _on_item_collapsed(self, item: QTreeWidgetItem) -> None:
+        path = self._tree_item_path(item)
+        if path is not None:
+            self._collapsed_dir_paths.add(path)
+
+    def _apply_directory_expansion_state(self, dir_nodes: dict[str, QTreeWidgetItem]) -> None:
+        with QSignalBlocker(self.table):
+            self.table.expandAll()
+            for path, item in dir_nodes.items():
+                item.setExpanded(path not in self._collapsed_dir_paths)
 
     def _on_diff_window_saved(self) -> None:
         if self.result is not None:

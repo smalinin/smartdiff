@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from .app_info import APP_NAME, about_text
 from .theme import DARK_THEME, LIGHT_THEME, Theme
+from .text_file import TextFileFormat, read_text_file, write_text_file
 
 
 DIFF_FONT_FAMILY = "'Consolas', 'Cascadia Mono', 'Menlo', 'SF Mono', 'Liberation Mono', 'DejaVu Sans Mono', monospace"
@@ -342,6 +343,7 @@ class DiffPreviewPanel(QWidget):
         is_directory: bool = False,
         is_binary: bool = False,
         is_too_large: bool = False,
+        binary_contents_equal: bool = False,
     ) -> None:
         if is_directory or is_binary or is_too_large:
             self._show_metadata_only_message(
@@ -351,6 +353,7 @@ class DiffPreviewPanel(QWidget):
                 right_meta,
                 is_directory=is_directory,
                 is_binary=is_binary,
+                binary_contents_equal=binary_contents_equal,
             )
             return
 
@@ -395,11 +398,15 @@ class DiffPreviewPanel(QWidget):
         *,
         is_directory: bool,
         is_binary: bool,
+        binary_contents_equal: bool,
     ) -> None:
         if is_directory:
             message = "Directory. Text diff is not available."
         elif is_binary:
-            message = "Binary file. Text diff is not available."
+            if binary_contents_equal:
+                message = "Binary files have identical content. Text diff is not available, but the SHA-256 hash is the same."
+            else:
+                message = "Binary file. Text diff is not available."
         else:
             message = "File is larger than 10 MB. Text diff is not available."
         self._left_lines = []
@@ -566,6 +573,8 @@ class DiffWindow(QMainWindow):
         self._redo_stack: list[tuple[str, str]] = []
         self._typing_snapshot_pending = False
         self._last_stable: tuple[str, str] = ("", "")
+        self.left_file_format = TextFileFormat("utf-8")
+        self.right_file_format = TextFileFormat("utf-8")
 
         self.left_edit = CodeEditor()
         self.right_edit = CodeEditor()
@@ -747,8 +756,12 @@ class DiffWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def _load_files(self) -> None:
-        self.left_original = _read_text(self.left_path).replace("\r\n", "\n").replace("\r", "\n")
-        self.right_original = _read_text(self.right_path).replace("\r\n", "\n").replace("\r", "\n")
+        left_file = read_text_file(self.left_path)
+        right_file = read_text_file(self.right_path)
+        self.left_file_format = left_file.format
+        self.right_file_format = right_file.format
+        self.left_original = _normalize_line_endings(left_file.text)
+        self.right_original = _normalize_line_endings(right_file.text)
         self.left_edit.setPlainText(self.left_original)
         self.right_edit.setPlainText(self.right_original)
         self.left_edit.document().setModified(False)
@@ -1317,10 +1330,12 @@ class DiffWindow(QMainWindow):
         return start, end
 
     def save(self) -> None:
-        self.left_path.write_text(self._logical_text("left"), encoding="utf-8")
-        self.right_path.write_text(self._logical_text("right"), encoding="utf-8")
-        self.left_original = self._logical_text("left")
-        self.right_original = self._logical_text("right")
+        left_text = self._logical_text("left")
+        right_text = self._logical_text("right")
+        write_text_file(self.left_path, left_text, self.left_file_format)
+        write_text_file(self.right_path, right_text, self.right_file_format)
+        self.left_original = left_text
+        self.right_original = right_text
         self.left_edit.document().setModified(False)
         self.right_edit.document().setModified(False)
         self.status_label.setText("Saved")
@@ -1749,10 +1764,11 @@ def _absolute_selection(edit: QPlainTextEdit, start: int, end: int, color: str) 
 
 
 def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return path.read_text(encoding="utf-8", errors="replace")
+    return read_text_file(path).text
+
+
+def _normalize_line_endings(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _action_button(
