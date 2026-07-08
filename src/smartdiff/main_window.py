@@ -374,12 +374,13 @@ class MainWindow(QMainWindow):
         for record in entries:
             slash = record.relative_path.rfind("/")
             filename = record.relative_path[slash + 1:] if slash >= 0 else record.relative_path
-            if slash < 0:
+            is_directory = _record_has_directory(record)
+            if is_directory:
+                file_item = get_or_create_dir(record.relative_path)
+            elif slash < 0:
                 file_item = QTreeWidgetItem(self.table)
             else:
                 file_item = QTreeWidgetItem(get_or_create_dir(record.relative_path[:slash]))
-
-            is_directory = _record_has_directory(record)
             file_item.setIcon(0, folder_icon if is_directory else file_icon)
 
             is_equal = record.state == CompareState.EQUAL
