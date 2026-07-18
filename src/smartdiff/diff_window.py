@@ -10,7 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QSize, Signal, QTimer, Qt
-from PySide6.QtGui import QAction, QColor, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextFormat
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QTextCharFormat,
+    QTextCursor,
+    QTextFormat,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -19,7 +28,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QSplitter,
     QStyle,
@@ -71,11 +79,9 @@ class FindMatch:
 
 @dataclass(frozen=True)
 class CursorSnapshot:
-    position_logical_line: int | None
-    position_display_line: int
+    position_line: int
     position_column: int
-    anchor_logical_line: int | None
-    anchor_display_line: int
+    anchor_line: int
     anchor_column: int
     had_selection: bool
 
@@ -92,31 +98,31 @@ class LineNumberArea(QWidget):
         self.editor.line_number_area_paint_event(event)
 
 
-class CodeEditor(QPlainTextEdit):
+class CodeEditor(QTextEdit):
     def __init__(self) -> None:
         super().__init__()
         self.line_number_area = LineNumberArea(self)
         self.line_number_background = QColor("#07111c")
         self.line_number_foreground = QColor("#3d6b93")
+        self.gap_background = QColor("#101820")
+        self.gap_hatch = QColor("#182735")
+        self.visual_gaps: dict[int, int] = {}
 
-        self.blockCountChanged.connect(self.update_line_number_area_width)
-        self.updateRequest.connect(self.update_line_number_area)
+        self.setAcceptRichText(False)
+        self.document().blockCountChanged.connect(self.update_line_number_area_width)
+        self.verticalScrollBar().valueChanged.connect(lambda _value: self.line_number_area.update())
+        self.textChanged.connect(self.line_number_area.update)
         self.update_line_number_area_width(0)
 
     def line_number_area_width(self) -> int:
         digits = len(str(max(1, self.blockCount())))
         return 14 + self.fontMetrics().horizontalAdvance("9") * digits
 
+    def blockCount(self) -> int:
+        return self.document().blockCount()
+
     def update_line_number_area_width(self, _block_count: int) -> None:
         self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
-
-    def update_line_number_area(self, rect: QRect, dy: int) -> None:
-        if dy:
-            self.line_number_area.scroll(0, dy)
-        else:
-            self.line_number_area.update(0, rect.y(), self.line_number_area.width(), rect.height())
-        if rect.contains(self.viewport().rect()):
-            self.update_line_number_area_width(0)
 
     def resizeEvent(self, event) -> None:  # noqa: ANN001
         super().resizeEvent(event)
@@ -130,17 +136,126 @@ class CodeEditor(QPlainTextEdit):
         self.line_number_foreground = QColor(foreground)
         self.line_number_area.update()
 
+    def set_gap_colors(self, background: str, hatch: str) -> None:
+        self.gap_background = QColor(background)
+        self.gap_hatch = QColor(hatch)
+        self.viewport().update()
+
+    def set_visual_gaps(self, gaps: dict[int, int]) -> None:
+        self.visual_gaps = {line: count for line, count in gaps.items() if count > 0}
+        was_modified = self.document().isModified()
+        previous_blocked = self.blockSignals(True)
+        block_count = self.document().blockCount()
+        line_height = self.fontMetrics().lineSpacing()
+        root_frame = self.document().rootFrame()
+        frame_format = root_frame.frameFormat()
+        leading_gap = self.visual_gaps.get(0, 0)
+        trailing_gap = self.visual_gaps.get(block_count, 0)
+        frame_format.setTopMargin(0)
+        frame_format.setBottomMargin(0)
+        root_frame.setFrameFormat(frame_format)
+        cursor = QTextCursor(self.document())
+        cursor.beginEditBlock()
+        block = self.document().firstBlock()
+        while block.isValid():
+            block_cursor = QTextCursor(block)
+            block_format = block_cursor.blockFormat()
+            top_gap = self.visual_gaps.get(block.blockNumber(), 0) if block.blockNumber() > 0 else 0
+            block_format.setTopMargin(top_gap * line_height)
+            block_format.setBottomMargin(0)
+            block_cursor.setBlockFormat(block_format)
+            block = block.next()
+        cursor.endEditBlock()
+
+        if leading_gap:
+            first_block = self.document().firstBlock()
+            base_top = self.document().documentLayout().blockBoundingRect(first_block).top()
+            leading_height = leading_gap * line_height
+            frame_format = root_frame.frameFormat()
+            frame_format.setTopMargin(leading_height)
+            root_frame.setFrameFormat(frame_format)
+            actual_top = self.document().documentLayout().blockBoundingRect(first_block).top()
+            frame_format.setTopMargin(max(0, leading_height + base_top + leading_height - actual_top))
+            root_frame.setFrameFormat(frame_format)
+
+        if trailing_gap:
+            base_height = self.document().documentLayout().documentSize().height()
+            trailing_height = trailing_gap * line_height
+            frame_format = root_frame.frameFormat()
+            frame_format.setBottomMargin(trailing_height)
+            root_frame.setFrameFormat(frame_format)
+            actual_height = self.document().documentLayout().documentSize().height()
+            frame_format.setBottomMargin(max(0, trailing_height + base_height + trailing_height - actual_height))
+            root_frame.setFrameFormat(frame_format)
+        self.blockSignals(previous_blocked)
+        self.document().setModified(was_modified)
+        self.line_number_area.update()
+        self.viewport().update()
+
+    def showEvent(self, event) -> None:  # noqa: ANN001
+        super().showEvent(event)
+        if self.visual_gaps:
+            self.set_visual_gaps(self.visual_gaps)
+
+    def visual_gap_rect(self, before_line: int) -> QRect | None:
+        count = self.visual_gaps.get(before_line, 0)
+        if count <= 0:
+            return None
+        height = count * self.fontMetrics().lineSpacing()
+        if before_line < self.document().blockCount():
+            block = self.document().findBlockByNumber(before_line)
+            y = self.cursorRect(QTextCursor(block)).top() - height
+        else:
+            block = self.document().lastBlock()
+            y = self.cursorRect(QTextCursor(block)).bottom() + 1
+        return QRect(0, y, self.viewport().width(), height)
+
+    def block_viewport_rect(self, block) -> QRect:  # noqa: ANN001
+        cursor_rect = self.cursorRect(QTextCursor(block))
+        return QRect(0, cursor_rect.top(), self.viewport().width(), cursor_rect.height())
+
+    def scroll_to_line(self, line: int, context_lines: int = 0) -> None:
+        line = max(0, min(line, self.document().blockCount() - 1))
+        block = self.document().findBlockByNumber(line)
+        if not block.isValid():
+            return
+        document_y = self.document().documentLayout().blockBoundingRect(block).top()
+        target = round(document_y - context_lines * self.fontMetrics().lineSpacing())
+        self.verticalScrollBar().setValue(max(0, min(target, self.verticalScrollBar().maximum())))
+
+    def paintEvent(self, event) -> None:  # noqa: ANN001
+        super().paintEvent(event)
+        if not self.visual_gaps:
+            return
+        painter = QPainter(self.viewport())
+        painter.setClipRect(event.rect())
+        painter.setPen(QPen(self.gap_hatch, 1))
+        for before_line in self.visual_gaps:
+            gap_rect = self.visual_gap_rect(before_line)
+            if gap_rect is None or not gap_rect.intersects(event.rect()):
+                continue
+            painter.fillRect(gap_rect, self.gap_background)
+            step = 9
+            start = gap_rect.left() - gap_rect.height()
+            for x in range(start, gap_rect.right() + step, step):
+                painter.drawLine(x, gap_rect.bottom(), x + gap_rect.height(), gap_rect.top())
+
     def line_number_area_paint_event(self, event) -> None:  # noqa: ANN001
         painter = QPainter(self.line_number_area)
         painter.fillRect(event.rect(), self.line_number_background)
         painter.setPen(self.line_number_foreground)
 
-        block = self.firstVisibleBlock()
-        block_number = block.blockNumber()
-        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
-        bottom = top + round(self.blockBoundingRect(block).height())
+        block = self.cursorForPosition(QPoint(0, max(0, event.rect().top()))).block()
+        previous = block.previous()
+        if previous.isValid():
+            block = previous
 
-        while block.isValid() and top <= event.rect().bottom():
+        while block.isValid():
+            cursor_rect = self.cursorRect(QTextCursor(block))
+            top = cursor_rect.top()
+            bottom = cursor_rect.bottom()
+            if top > event.rect().bottom():
+                break
             if block.isVisible() and bottom >= event.rect().top():
                 painter.drawText(
                     0,
@@ -148,12 +263,9 @@ class CodeEditor(QPlainTextEdit):
                     self.line_number_area.width() - 6,
                     self.fontMetrics().height(),
                     Qt.AlignmentFlag.AlignRight,
-                    str(block_number + 1),
+                    str(block.blockNumber() + 1),
                 )
             block = block.next()
-            top = bottom
-            bottom = top + round(self.blockBoundingRect(block).height())
-            block_number += 1
 
 
 class DiffGutter(QWidget):
@@ -199,7 +311,7 @@ class DiffMinimap(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), _minimap_background_color(self.owner.theme))
 
-        total_lines = max(1, self.owner.right_edit.blockCount())
+        total_lines = max(1, self.owner.left_edit.blockCount(), self.owner.right_edit.blockCount())
         for block in self.owner.diff_blocks:
             start = min(block.left_start, block.right_start)
             end = max(block.left_end, block.right_end, start + 1)
@@ -208,10 +320,12 @@ class DiffMinimap(QWidget):
             painter.fillRect(3, top, self.width() - 6, bottom - top, _minimap_block_color(block.tag, self.owner.theme))
 
         scroll_bar = self.owner.right_edit.verticalScrollBar()
-        visible_top = scroll_bar.value()
-        visible_bottom = min(total_lines, visible_top + scroll_bar.pageStep())
-        viewport_top = self._line_to_y(visible_top, total_lines)
-        viewport_bottom = max(viewport_top + 18, self._line_to_y(visible_bottom, total_lines))
+        scroll_extent = max(1, scroll_bar.maximum() + scroll_bar.pageStep())
+        viewport_top = round(scroll_bar.value() / scroll_extent * max(1, self.height() - 1))
+        viewport_bottom = max(
+            viewport_top + 18,
+            round((scroll_bar.value() + scroll_bar.pageStep()) / scroll_extent * max(1, self.height() - 1)),
+        )
         painter.setPen(QPen(_minimap_viewport_color(self.owner.theme), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(1, viewport_top, self.width() - 3, min(self.height() - viewport_top - 1, viewport_bottom - viewport_top), 2, 2)
@@ -227,10 +341,10 @@ class DiffMinimap(QWidget):
         return round(max(0, min(line, total_lines)) / total_lines * max(1, self.height() - 1))
 
     def _scroll_to_position(self, y: float) -> None:
-        total_lines = max(1, self.owner.right_edit.blockCount())
         scroll_bar = self.owner.right_edit.verticalScrollBar()
-        target = round(max(0.0, min(y, float(self.height()))) / max(1, self.height()) * total_lines)
-        target = max(0, target - scroll_bar.pageStep() // 2)
+        ratio = max(0.0, min(y, float(self.height()))) / max(1, self.height())
+        target = round(ratio * (scroll_bar.maximum() + scroll_bar.pageStep()) - scroll_bar.pageStep() / 2)
+        target = max(0, min(target, scroll_bar.maximum()))
         self.owner._syncing_scroll = True
         self.owner.left_edit.verticalScrollBar().setValue(min(target, self.owner.left_edit.verticalScrollBar().maximum()))
         self.owner.right_edit.verticalScrollBar().setValue(min(target, scroll_bar.maximum()))
@@ -248,8 +362,8 @@ class DiffPreviewPanel(QWidget):
         self.line_styles: list[DiffLineStyle] = []
         self.inline_styles: list[InlineStyle] = []
         self.diff_blocks: list[DiffBlock] = []
-        self.left_spacer_lines: set[int] = set()
-        self.right_spacer_lines: set[int] = set()
+        self.left_visual_gaps: dict[int, int] = {}
+        self.right_visual_gaps: dict[int, int] = {}
         self.current_diff_index = -1
         self._syncing_scroll = False
         self._left_lines: list[str] = []
@@ -270,7 +384,7 @@ class DiffPreviewPanel(QWidget):
         self.right_edit = CodeEditor()
         for edit in (self.left_edit, self.right_edit):
             edit.setReadOnly(True)
-            edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+            edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
             edit.setTabStopDistance(32)
             edit.setUndoRedoEnabled(False)
         self.left_edit.verticalScrollBar().valueChanged.connect(
@@ -366,8 +480,8 @@ class DiffPreviewPanel(QWidget):
         (
             left_display,
             right_display,
-            self.left_spacer_lines,
-            self.right_spacer_lines,
+            self.left_visual_gaps,
+            self.right_visual_gaps,
             self.line_styles,
             self.inline_styles,
             self.diff_blocks,
@@ -380,6 +494,8 @@ class DiffPreviewPanel(QWidget):
         )
         self.left_edit.setPlainText("\n".join(left_display))
         self.right_edit.setPlainText("\n".join(right_display))
+        self.left_edit.set_visual_gaps(self.left_visual_gaps)
+        self.right_edit.set_visual_gaps(self.right_visual_gaps)
         self.filename_label.setText(filename)
         self.state_label.setText(state_text)
         self.left_meta_label.setText(left_meta)
@@ -413,14 +529,16 @@ class DiffPreviewPanel(QWidget):
             message = "File is larger than 10 MB. Text diff is not available."
         self._left_lines = []
         self._right_lines = []
-        self.left_spacer_lines = set()
-        self.right_spacer_lines = set()
+        self.left_visual_gaps = {}
+        self.right_visual_gaps = {}
         self.line_styles = []
         self.inline_styles = []
         self.diff_blocks = []
         self.current_diff_index = -1
         self.left_edit.setPlainText(message)
         self.right_edit.setPlainText(message)
+        self.left_edit.set_visual_gaps({})
+        self.right_edit.set_visual_gaps({})
         self.filename_label.setText(filename)
         self.state_label.setText(state_text)
         self.left_meta_label.setText(left_meta)
@@ -431,6 +549,10 @@ class DiffPreviewPanel(QWidget):
     def clear(self) -> None:
         self.left_edit.setPlainText("")
         self.right_edit.setPlainText("")
+        self.left_visual_gaps = {}
+        self.right_visual_gaps = {}
+        self.left_edit.set_visual_gaps({})
+        self.right_edit.set_visual_gaps({})
         self.filename_label.setText("\u2014")
         self.state_label.setText("")
         self.left_meta_label.setText("")
@@ -448,8 +570,8 @@ class DiffPreviewPanel(QWidget):
             (
                 _,
                 _,
-                self.left_spacer_lines,
-                self.right_spacer_lines,
+                self.left_visual_gaps,
+                self.right_visual_gaps,
                 self.line_styles,
                 self.inline_styles,
                 self.diff_blocks,
@@ -465,7 +587,7 @@ class DiffPreviewPanel(QWidget):
     def _apply_editor_theme(self) -> None:
         sel_color = "#1e3d6e" if self.theme.name == "Dark" else "#add6ff"
         editor_style = (
-            f"QPlainTextEdit {{ background: {self.theme.editor_background}; "
+            f"QTextEdit {{ background: {self.theme.editor_background}; "
             f"color: {self.theme.editor_foreground}; "
             f"font-family: {DIFF_FONT_FAMILY}; "
             f"font-size: {DIFF_FONT_SIZE}; "
@@ -477,6 +599,12 @@ class DiffPreviewPanel(QWidget):
         ln_fg = "#8aaac4" if self.theme.name == "Light" else "#2e5878"
         self.left_edit.set_line_number_colors(ln_bg, ln_fg)
         self.right_edit.set_line_number_colors(ln_bg, ln_fg)
+        gap_bg = "#edf2f7" if self.theme.name == "Light" else "#0b1119"
+        gap_hatch = "#d8e1ea" if self.theme.name == "Light" else "#142231"
+        self.left_edit.set_gap_colors(gap_bg, gap_hatch)
+        self.right_edit.set_gap_colors(gap_bg, gap_hatch)
+        self.left_edit.set_visual_gaps(self.left_visual_gaps)
+        self.right_edit.set_visual_gaps(self.right_visual_gaps)
         self._apply_selections()
 
     def _apply_selections(self) -> None:
@@ -494,7 +622,7 @@ class DiffPreviewPanel(QWidget):
                 selections.append(_range_selection(edit, style.line, style.start, style.end, self.theme.inline_changed))
         return selections
 
-    def _sync_scroll(self, source: QPlainTextEdit) -> None:
+    def _sync_scroll(self, source: QTextEdit) -> None:
         if self._syncing_scroll:
             return
         target = self.right_edit if source is self.left_edit else self.left_edit
@@ -516,10 +644,9 @@ class DiffPreviewPanel(QWidget):
 
     def _scroll_to_diff(self, block: DiffBlock) -> None:
         target_line = min(v for v in (block.left_start, block.right_start) if v >= 0)
-        top_line = max(0, target_line - 3)
         self._syncing_scroll = True
         for edit in (self.left_edit, self.right_edit):
-            edit.verticalScrollBar().setValue(min(top_line, edit.verticalScrollBar().maximum()))
+            edit.scroll_to_line(target_line, 3)
         self._syncing_scroll = False
 
     def _update_diff_counter(self) -> None:
@@ -561,8 +688,8 @@ class DiffWindow(QMainWindow):
         self.line_styles: list[DiffLineStyle] = []
         self.inline_styles: list[InlineStyle] = []
         self.diff_blocks: list[DiffBlock] = []
-        self.left_spacer_lines: set[int] = set()
-        self.right_spacer_lines: set[int] = set()
+        self.left_visual_gaps: dict[int, int] = {}
+        self.right_visual_gaps: dict[int, int] = {}
         self.find_query = ""
         self.find_matches: list[FindMatch] = []
         self.current_find_index = -1
@@ -606,7 +733,7 @@ class DiffWindow(QMainWindow):
         self.left_edit.setObjectName("leftEditor")
         self.right_edit.setObjectName("rightEditor")
         for edit in (self.left_edit, self.right_edit):
-            edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+            edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
             edit.setTabStopDistance(32)
             edit.setUndoRedoEnabled(False)
             edit.installEventFilter(self)
@@ -811,8 +938,8 @@ class DiffWindow(QMainWindow):
         (
             left_display,
             right_display,
-            self.left_spacer_lines,
-            self.right_spacer_lines,
+            self.left_visual_gaps,
+            self.right_visual_gaps,
             self.line_styles,
             self.inline_styles,
             self.diff_blocks,
@@ -845,7 +972,7 @@ class DiffWindow(QMainWindow):
             app.setStyleSheet(theme.stylesheet)
         sel_color = "#1e3d6e" if theme.name == "Dark" else "#add6ff"
         editor_style = (
-            f"QPlainTextEdit {{ background: {theme.editor_background}; "
+            f"QTextEdit {{ background: {theme.editor_background}; "
             f"color: {theme.editor_foreground}; "
             f"font-family: {DIFF_FONT_FAMILY}; "
             f"font-size: {DIFF_FONT_SIZE}; "
@@ -858,6 +985,10 @@ class DiffWindow(QMainWindow):
         line_number_foreground = "#8aaac4" if theme.name == "Light" else "#2e5878"
         self.left_edit.set_line_number_colors(line_number_background, line_number_foreground)
         self.right_edit.set_line_number_colors(line_number_background, line_number_foreground)
+        gap_bg = "#edf2f7" if theme.name == "Light" else "#0b1119"
+        gap_hatch = "#d8e1ea" if theme.name == "Light" else "#142231"
+        self.left_edit.set_gap_colors(gap_bg, gap_hatch)
+        self.right_edit.set_gap_colors(gap_bg, gap_hatch)
         self.recompare()
         self.theme_changed.emit(theme.name == "Dark")
 
@@ -865,7 +996,7 @@ class DiffWindow(QMainWindow):
         self.left_edit.setExtraSelections(self._selections_for("left"))
         self.right_edit.setExtraSelections(self._selections_for("right"))
 
-    def _sync_scroll(self, source: QPlainTextEdit) -> None:
+    def _sync_scroll(self, source: QTextEdit) -> None:
         if self._syncing_scroll:
             return
 
@@ -962,8 +1093,11 @@ class DiffWindow(QMainWindow):
             return None
         return left_range[0], left_range[1], right_range[0], right_range[1]
 
-    def _line_range_y(self, edit: QPlainTextEdit, start: int, end: int) -> tuple[int, int] | None:
+    def _line_range_y(self, edit: CodeEditor, start: int, end: int) -> tuple[int, int] | None:
         if start >= end:
+            gap_rect = edit.visual_gap_rect(start)
+            if gap_rect is not None:
+                return self._viewport_range_to_action_panel(edit, gap_rect.top(), gap_rect.top() + 1)
             return self._line_boundary_y(edit, start)
 
         first = edit.document().findBlockByNumber(start)
@@ -971,29 +1105,33 @@ class DiffWindow(QMainWindow):
         if not first.isValid() or not last.isValid():
             return None
 
-        first_geometry = edit.blockBoundingGeometry(first).translated(edit.contentOffset())
-        last_geometry = edit.blockBoundingGeometry(last).translated(edit.contentOffset())
-        top = int(first_geometry.top())
-        bottom = int(last_geometry.bottom())
+        first_geometry = edit.block_viewport_rect(first)
+        last_geometry = edit.block_viewport_rect(last)
+        top = first_geometry.top()
+        bottom = last_geometry.bottom() + 1
         if bottom < 0 or top > edit.viewport().height():
             return None
 
-        global_position = edit.viewport().mapToGlobal(QPoint(0, top))
-        mapped_top = self.action_panel.mapFromGlobal(global_position).y()
-        return mapped_top, mapped_top + max(16, bottom - top)
+        return self._viewport_range_to_action_panel(edit, top, max(top + 16, bottom))
 
-    def _line_boundary_y(self, edit: QPlainTextEdit, line: int) -> tuple[int, int] | None:
-        line = max(0, min(line, edit.document().blockCount() - 1))
+    def _line_boundary_y(self, edit: CodeEditor, line: int) -> tuple[int, int] | None:
+        block_count = edit.document().blockCount()
+        at_end = line >= block_count
+        line = max(0, min(line, block_count - 1))
         block = edit.document().findBlockByNumber(line)
         if not block.isValid():
             return None
-        geometry = edit.blockBoundingGeometry(block).translated(edit.contentOffset())
-        y = int(geometry.top())
+        geometry = edit.block_viewport_rect(block)
+        y = geometry.bottom() + 1 if at_end else geometry.top()
         if y < -24 or y > edit.viewport().height() + 24:
             return None
-        global_position = edit.viewport().mapToGlobal(QPoint(0, y))
-        mapped_y = self.action_panel.mapFromGlobal(global_position).y()
+        mapped_y, _ = self._viewport_range_to_action_panel(edit, y, y + 1)
         return mapped_y - 1, mapped_y + 1
+
+    def _viewport_range_to_action_panel(self, edit: CodeEditor, top: int, bottom: int) -> tuple[int, int]:
+        global_position = edit.viewport().mapToGlobal(QPoint(0, top))
+        mapped_top = self.action_panel.mapFromGlobal(global_position).y()
+        return mapped_top, mapped_top + max(1, bottom - top)
 
     def _avoid_button_overlap(self, y: int, occupied: list[tuple[int, int]]) -> int:
         result = y
@@ -1061,10 +1199,9 @@ class DiffWindow(QMainWindow):
             for value in (block.left_start, block.right_start)
             if value >= 0
         )
-        top_line = max(0, target_line - 3)
         self._syncing_scroll = True
-        self.left_edit.verticalScrollBar().setValue(min(top_line, self.left_edit.verticalScrollBar().maximum()))
-        self.right_edit.verticalScrollBar().setValue(min(top_line, self.right_edit.verticalScrollBar().maximum()))
+        self.left_edit.scroll_to_line(target_line, 3)
+        self.right_edit.scroll_to_line(target_line, 3)
         self._syncing_scroll = False
         self._schedule_action_buttons_update()
 
@@ -1097,14 +1234,12 @@ class DiffWindow(QMainWindow):
         self.current_find_index = min(previous, len(self.find_matches) - 1)
         self.status_label.setText(f"{len(self.find_matches)} match(es)" if self.find_query else self.status_label.text())
 
-    def _active_edit(self) -> QPlainTextEdit:
+    def _active_edit(self) -> QTextEdit:
         return self.left_edit if self.active_side == "left" else self.right_edit
 
     def _logical_lines(self, side: str) -> list[str]:
         edit = self.left_edit if side == "left" else self.right_edit
-        lines = edit.toPlainText().split("\n")
-        spacers = self._effective_spacers(side, lines)
-        return [line for index, line in enumerate(lines) if index not in spacers]
+        return edit.toPlainText().split("\n")
 
     def _logical_text(self, side: str) -> str:
         return "\n".join(self._logical_lines(side))
@@ -1123,9 +1258,11 @@ class DiffWindow(QMainWindow):
 
         self._loading = True
         if self.left_edit.toPlainText() != left_text:
-            self._replace_text("left", self.left_edit, left_text)
+            self._replace_text(self.left_edit, left_text)
         if self.right_edit.toPlainText() != right_text:
-            self._replace_text("right", self.right_edit, right_text)
+            self._replace_text(self.right_edit, right_text)
+        self.left_edit.set_visual_gaps(self.left_visual_gaps)
+        self.right_edit.set_visual_gaps(self.right_visual_gaps)
         self._loading = False
 
         self.left_edit.document().setModified(left_modified)
@@ -1133,8 +1270,8 @@ class DiffWindow(QMainWindow):
         self.left_edit.verticalScrollBar().setValue(min(left_scroll, self.left_edit.verticalScrollBar().maximum()))
         self.right_edit.verticalScrollBar().setValue(min(right_scroll, self.right_edit.verticalScrollBar().maximum()))
 
-    def _replace_text(self, side: str, edit: QPlainTextEdit, new_text: str) -> None:
-        snapshot = self._capture_cursor_snapshot(side, edit.textCursor())
+    def _replace_text(self, edit: QTextEdit, new_text: str) -> None:
+        snapshot = self._capture_cursor_snapshot(edit.textCursor())
 
         cursor = edit.textCursor()
         cursor.beginEditBlock()
@@ -1142,35 +1279,29 @@ class DiffWindow(QMainWindow):
         cursor.insertText(new_text)
         cursor.endEditBlock()
 
-        self._restore_cursor_snapshot(side, edit, snapshot)
+        self._restore_cursor_snapshot(edit, snapshot)
 
-    def _capture_cursor_snapshot(self, side: str, cursor: QTextCursor) -> CursorSnapshot:
+    def _capture_cursor_snapshot(self, cursor: QTextCursor) -> CursorSnapshot:
         anchor_cursor = QTextCursor(cursor)
         anchor_cursor.setPosition(cursor.anchor())
         return CursorSnapshot(
-            position_logical_line=self._display_line_to_logical(side, cursor.blockNumber()),
-            position_display_line=cursor.blockNumber(),
+            position_line=cursor.blockNumber(),
             position_column=cursor.positionInBlock(),
-            anchor_logical_line=self._display_line_to_logical(side, anchor_cursor.blockNumber()),
-            anchor_display_line=anchor_cursor.blockNumber(),
+            anchor_line=anchor_cursor.blockNumber(),
             anchor_column=anchor_cursor.positionInBlock(),
             had_selection=cursor.hasSelection(),
         )
 
-    def _restore_cursor_snapshot(self, side: str, edit: QPlainTextEdit, snapshot: CursorSnapshot) -> None:
+    def _restore_cursor_snapshot(self, edit: QTextEdit, snapshot: CursorSnapshot) -> None:
         restored_cursor = edit.textCursor()
         anchor_position = self._cursor_position_from_snapshot(
-            side,
             edit,
-            snapshot.anchor_logical_line,
-            snapshot.anchor_display_line,
+            snapshot.anchor_line,
             snapshot.anchor_column,
         )
         position = self._cursor_position_from_snapshot(
-            side,
             edit,
-            snapshot.position_logical_line,
-            snapshot.position_display_line,
+            snapshot.position_line,
             snapshot.position_column,
         )
         restored_cursor.setPosition(anchor_position)
@@ -1182,59 +1313,15 @@ class DiffWindow(QMainWindow):
 
     def _cursor_position_from_snapshot(
         self,
-        side: str,
-        edit: QPlainTextEdit,
-        logical_line: int | None,
-        display_line: int,
+        edit: QTextEdit,
+        line: int,
         column: int,
     ) -> int:
-        if logical_line is None:
-            target_line = min(display_line, max(0, edit.document().blockCount() - 1))
-        else:
-            target_line = self._logical_line_to_display(side, logical_line)
+        target_line = max(0, min(line, edit.document().blockCount() - 1))
         block = edit.document().findBlockByNumber(target_line)
         if not block.isValid():
             return 0
         return block.position() + min(column, len(block.text()))
-
-    def _declared_spacers(self, side: str) -> set[int]:
-        return self.left_spacer_lines if side == "left" else self.right_spacer_lines
-
-    def _effective_spacers(self, side: str, lines: list[str] | None = None) -> set[int]:
-        spacers = self._declared_spacers(side)
-        if not spacers:
-            return spacers
-        if lines is None:
-            edit = self.left_edit if side == "left" else self.right_edit
-            lines = edit.toPlainText().split("\n")
-        return {index for index in spacers if index >= len(lines) or lines[index] == ""}
-
-    def _display_line_to_logical(self, side: str, display_line: int) -> int | None:
-        spacers = self._effective_spacers(side)
-        if display_line in spacers:
-            return None
-        return sum(1 for index in range(display_line) if index not in spacers)
-
-    def _logical_line_to_display(self, side: str, logical_line: int) -> int:
-        edit = self.left_edit if side == "left" else self.right_edit
-        lines = edit.toPlainText().split("\n")
-        spacers = self._effective_spacers(side, lines)
-        current_logical = 0
-        last_non_spacer = 0
-        for display_line in range(len(lines)):
-            if display_line in spacers:
-                continue
-            last_non_spacer = display_line
-            if current_logical == logical_line:
-                return display_line
-            current_logical += 1
-        return last_non_spacer
-
-    def _display_range_to_logical(self, side: str, start: int, end: int) -> tuple[int, int]:
-        spacers = self._effective_spacers(side)
-        logical_start = sum(1 for index in range(start) if index not in spacers)
-        logical_end = logical_start + sum(1 for index in range(start, end) if index not in spacers)
-        return logical_start, logical_end
 
     def copy_current_line(self, source_side: str, target_side: str) -> None:
         self._push_undo_snapshot()
@@ -1242,8 +1329,8 @@ class DiffWindow(QMainWindow):
         line_number = source_edit.textCursor().blockNumber()
         source_lines = self._logical_lines(source_side)
         target_lines = self._logical_lines(target_side)
-        source_index, source_end = self._display_range_to_logical(source_side, line_number, line_number + 1)
-        target_index, target_end = self._display_range_to_logical(target_side, line_number, line_number + 1)
+        source_index, source_end = line_number, line_number + 1
+        target_index, target_end = line_number, line_number + 1
         if source_index >= source_end or source_index >= len(source_lines):
             return
         while len(target_lines) < target_index:
@@ -1276,7 +1363,7 @@ class DiffWindow(QMainWindow):
             target_lines.append("")
 
         target_lines[start:end] = source_lines[start:min(end, len(source_lines))]
-        self._replace_text(target_side, target_edit, "\n".join(target_lines))
+        self._replace_text(target_edit, "\n".join(target_lines))
         target_edit.document().setModified(True)
         self.recompare()
 
@@ -1284,16 +1371,13 @@ class DiffWindow(QMainWindow):
         self._push_undo_snapshot()
         source_start, source_end = _block_range(block, source_side)
         target_start, target_end = _block_range(block, target_side)
-        source_logical_start, source_logical_end = self._display_range_to_logical(source_side, source_start, source_end)
-        target_logical_start, target_logical_end = self._display_range_to_logical(target_side, target_start, target_end)
-
         source_lines = self._logical_lines(source_side)
         target_lines = self._logical_lines(target_side)
-        replacement = source_lines[source_logical_start:source_logical_end]
+        replacement = source_lines[source_start:source_end]
 
-        while len(target_lines) < target_logical_start:
+        while len(target_lines) < target_start:
             target_lines.append("")
-        target_lines[target_logical_start:target_logical_end] = replacement
+        target_lines[target_start:target_end] = replacement
         if target_side == "left":
             self._render_logical_lines(target_lines, self._logical_lines("right"))
         else:
@@ -1302,12 +1386,11 @@ class DiffWindow(QMainWindow):
     def delete_diff_block(self, block: DiffBlock, side: str) -> None:
         self._push_undo_snapshot()
         start, end = _block_range(block, side)
-        logical_start, logical_end = self._display_range_to_logical(side, start, end)
-        if logical_start >= logical_end:
+        if start >= end:
             return
 
         lines = self._logical_lines(side)
-        del lines[logical_start:logical_end]
+        del lines[start:end]
         if side == "left":
             self._render_logical_lines(lines, self._logical_lines("right"))
         else:
@@ -1476,8 +1559,8 @@ class DiffWindow(QMainWindow):
         (
             left_display,
             right_display,
-            self.left_spacer_lines,
-            self.right_spacer_lines,
+            self.left_visual_gaps,
+            self.right_visual_gaps,
             self.line_styles,
             self.inline_styles,
             self.diff_blocks,
@@ -1529,8 +1612,8 @@ def build_diff_view(
 ) -> tuple[
     list[str],
     list[str],
-    set[int],
-    set[int],
+    dict[int, int],
+    dict[int, int],
     list[DiffLineStyle],
     list[InlineStyle],
     list[DiffBlock],
@@ -1554,78 +1637,61 @@ def _build_line_diff_view(
 ) -> tuple[
     list[str],
     list[str],
-    set[int],
-    set[int],
+    dict[int, int],
+    dict[int, int],
     list[DiffLineStyle],
     list[InlineStyle],
     list[DiffBlock],
 ]:
     normalized_left = [_normalize(line, ignore_whitespace, ignore_case) for line in left_lines]
     normalized_right = [_normalize(line, ignore_whitespace, ignore_case) for line in right_lines]
-    left_display: list[str] = []
-    right_display: list[str] = []
-    left_spacers: set[int] = set()
-    right_spacers: set[int] = set()
+    left_gaps: dict[int, int] = {}
+    right_gaps: dict[int, int] = {}
     line_styles: list[DiffLineStyle] = []
     inline_styles: list[InlineStyle] = []
     diff_blocks: list[DiffBlock] = []
 
     for tag, left_start, left_end, right_start, right_end in _build_patience_opcodes(normalized_left, normalized_right):
         if tag == "equal":
-            left_display.extend(left_lines[left_start:left_end])
-            right_display.extend(right_lines[right_start:right_end])
             continue
-
-        display_start = len(left_display)
-        block_left_start = display_start
-        block_left_end = display_start
-        block_right_start = display_start
-        block_right_end = display_start
 
         if tag == "delete":
             for left_index in range(left_start, left_end):
-                display_index = len(left_display)
-                left_display.append(left_lines[left_index])
-                right_display.append("")
-                right_spacers.add(display_index)
-                line_styles.append(DiffLineStyle("left", display_index, theme.line_removed))
-            block_left_end = len(left_display)
+                line_styles.append(DiffLineStyle("left", left_index, theme.line_removed))
+            _add_visual_gap(right_gaps, right_start, left_end - left_start)
         elif tag == "insert":
             for right_index in range(right_start, right_end):
-                display_index = len(left_display)
-                left_display.append("")
-                right_display.append(right_lines[right_index])
-                left_spacers.add(display_index)
-                line_styles.append(DiffLineStyle("right", display_index, theme.line_added))
-            block_right_end = len(right_display)
+                line_styles.append(DiffLineStyle("right", right_index, theme.line_added))
+            _add_visual_gap(left_gaps, left_start, right_end - right_start)
         elif tag == "replace":
             left_count = left_end - left_start
             right_count = right_end - right_start
-            block_left_end = display_start + left_count
-            block_right_end = display_start + right_count
-            display_count = max(left_count, right_count)
-            for offset in range(display_count):
-                display_index = len(left_display)
-                has_left = offset < left_count
-                has_right = offset < right_count
-                left_text = left_lines[left_start + offset] if has_left else ""
-                right_text = right_lines[right_start + offset] if has_right else ""
-                left_display.append(left_text)
-                right_display.append(right_text)
-                if not has_left:
-                    left_spacers.add(display_index)
-                    line_styles.append(DiffLineStyle("right", display_index, theme.line_added))
-                elif not has_right:
-                    right_spacers.add(display_index)
-                    line_styles.append(DiffLineStyle("left", display_index, theme.line_removed))
-                else:
-                    line_styles.append(DiffLineStyle("left", display_index, theme.line_changed))
-                    line_styles.append(DiffLineStyle("right", display_index, theme.line_changed))
-                    inline_styles.extend(_inline_diff(left_text, right_text, display_index, display_index))
+            common_count = min(left_count, right_count)
+            for offset in range(common_count):
+                left_index = left_start + offset
+                right_index = right_start + offset
+                line_styles.append(DiffLineStyle("left", left_index, theme.line_changed))
+                line_styles.append(DiffLineStyle("right", right_index, theme.line_changed))
+                inline_styles.extend(
+                    _inline_diff(left_lines[left_index], right_lines[right_index], left_index, right_index)
+                )
+            for left_index in range(left_start + common_count, left_end):
+                line_styles.append(DiffLineStyle("left", left_index, theme.line_removed))
+            for right_index in range(right_start + common_count, right_end):
+                line_styles.append(DiffLineStyle("right", right_index, theme.line_added))
+            if left_count < right_count:
+                _add_visual_gap(left_gaps, left_end, right_count - left_count)
+            elif right_count < left_count:
+                _add_visual_gap(right_gaps, right_end, left_count - right_count)
 
-        diff_blocks.append(DiffBlock(tag, block_left_start, block_left_end, block_right_start, block_right_end))
+        diff_blocks.append(DiffBlock(tag, left_start, left_end, right_start, right_end))
 
-    return left_display, right_display, left_spacers, right_spacers, line_styles, inline_styles, diff_blocks
+    return list(left_lines), list(right_lines), left_gaps, right_gaps, line_styles, inline_styles, diff_blocks
+
+
+def _add_visual_gap(gaps: dict[int, int], before_line: int, line_count: int) -> None:
+    if line_count > 0:
+        gaps[before_line] = gaps.get(before_line, 0) + line_count
 
 
 def _build_patience_opcodes(left_lines: list[str], right_lines: list[str]) -> list[tuple[str, int, int, int, int]]:
@@ -1818,7 +1884,7 @@ def _normalize(line: str, ignore_whitespace: bool, ignore_case: bool) -> str:
     return line
 
 
-def _line_selection(edit: QPlainTextEdit, line: int, color: str) -> QTextEdit.ExtraSelection:
+def _line_selection(edit: QTextEdit, line: int, color: str) -> QTextEdit.ExtraSelection:
     selection = QTextEdit.ExtraSelection()
     selection.cursor = QTextCursor(edit.document().findBlockByNumber(line))
     selection.format.setBackground(QColor(color))
@@ -1826,12 +1892,12 @@ def _line_selection(edit: QPlainTextEdit, line: int, color: str) -> QTextEdit.Ex
     return selection
 
 
-def _range_selection(edit: QPlainTextEdit, line: int, start: int, end: int, color: str) -> QTextEdit.ExtraSelection:
+def _range_selection(edit: QTextEdit, line: int, start: int, end: int, color: str) -> QTextEdit.ExtraSelection:
     block = edit.document().findBlockByNumber(line)
     return _absolute_selection(edit, block.position() + start, block.position() + end, color)
 
 
-def _absolute_selection(edit: QPlainTextEdit, start: int, end: int, color: str) -> QTextEdit.ExtraSelection:
+def _absolute_selection(edit: QTextEdit, start: int, end: int, color: str) -> QTextEdit.ExtraSelection:
     selection = QTextEdit.ExtraSelection()
     cursor = QTextCursor(edit.document())
     cursor.setPosition(start)
