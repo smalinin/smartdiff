@@ -24,7 +24,8 @@ def editor_font() -> QFont:
     return font
 
 
-def editor_font_stylesheet() -> str:
-    font = editor_font()
+def editor_font_stylesheet(font: QFont | None = None) -> str:
+    if font is None:
+        font = editor_font()
     families = ", ".join(json.dumps(family, ensure_ascii=False) for family in font.families())
     return f"font-family: {families}; font-size: {font.pointSizeF():g}pt; "

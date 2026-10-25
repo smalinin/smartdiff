@@ -91,6 +91,16 @@ DARK_THEME = Theme(
         QLabel#PreviewStateLabel { color: #6a90bb; font-size: 9.5pt; }
         QLabel#PreviewMetaLabel { color: #4a6e8a; font-size: 9pt; font-family: 'Cascadia Code', Consolas, monospace; }
         QLabel#PreviewCounterLabel { color: #4a6e8a; font-size: 9.5pt; min-width: 40px; }
+        QDialog#PreferencesDialog QLabel { background: transparent; }
+        QDialog#PreferencesDialog QFrame#PreferencesCard { background: #111d2c; border: 1px solid #1c3347; border-radius: 10px; }
+        QLabel#PreferencesSectionTitle { color: #c8dff5; font-size: 11pt; font-weight: 600; }
+        QLabel#PreferencesHint { color: #7896b3; font-size: 9.5pt; }
+        QDialog#PreferencesDialog QComboBox, QDialog#PreferencesDialog QAbstractSpinBox { background: #0a111a; color: #c8dff5; border: 1px solid #1c3347; border-radius: 6px; padding: 5px 8px; }
+        QDialog#PreferencesDialog QComboBox:focus, QDialog#PreferencesDialog QAbstractSpinBox:focus, QDialog#PreferencesDialog QPlainTextEdit:focus { border-color: #55b3ff; }
+        QDialog#PreferencesDialog QPlainTextEdit { background: #0a111a; color: #c8dff5; border: 1px solid #1c3347; border-radius: 6px; padding: 5px; selection-background-color: #1e3d6e; }
+        QDialog#PreferencesDialog QPlainTextEdit#FontPreview { padding: 8px; }
+        QPushButton#PreferencesSaveButton { background: #1a4d8c; color: #ffffff; border-color: #1a4d8c; padding: 6px 18px; }
+        QPushButton#PreferencesSaveButton:hover { background: #2060b0; border-color: #2060b0; }
     """,
     editor_background="#090f18",
     editor_foreground="#c8dff5",
@@ -173,6 +183,16 @@ LIGHT_THEME = Theme(
         QLabel#PreviewStateLabel { color: #4a6a85; font-size: 9.5pt; }
         QLabel#PreviewMetaLabel { color: #7090aa; font-size: 9pt; font-family: 'Cascadia Code', Consolas, monospace; }
         QLabel#PreviewCounterLabel { color: #7090aa; font-size: 9.5pt; min-width: 40px; }
+        QDialog#PreferencesDialog QLabel { background: transparent; }
+        QDialog#PreferencesDialog QFrame#PreferencesCard { background: #ffffff; border: 1px solid #d0dce8; border-radius: 10px; }
+        QLabel#PreferencesSectionTitle { color: #1a2d42; font-size: 11pt; font-weight: 600; }
+        QLabel#PreferencesHint { color: #607b94; font-size: 9.5pt; }
+        QDialog#PreferencesDialog QComboBox, QDialog#PreferencesDialog QAbstractSpinBox { background: #f7fafd; color: #1a2d42; border: 1px solid #d0dce8; border-radius: 6px; padding: 5px 8px; }
+        QDialog#PreferencesDialog QComboBox:focus, QDialog#PreferencesDialog QAbstractSpinBox:focus, QDialog#PreferencesDialog QPlainTextEdit:focus { border-color: #3a82d6; }
+        QDialog#PreferencesDialog QPlainTextEdit { background: #f7fafd; color: #1a2d42; border: 1px solid #d0dce8; border-radius: 6px; padding: 5px; selection-background-color: #add6ff; }
+        QDialog#PreferencesDialog QPlainTextEdit#FontPreview { padding: 8px; }
+        QPushButton#PreferencesSaveButton { background: #3a82d6; color: #ffffff; border-color: #3a82d6; padding: 6px 18px; }
+        QPushButton#PreferencesSaveButton:hover { background: #2a72c6; border-color: #2a72c6; }
     """,
     editor_background="#ffffff",
     editor_foreground="#1a2d42",
