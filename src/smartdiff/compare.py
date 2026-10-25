@@ -4,7 +4,6 @@
 #
 from __future__ import annotations
 
-import filecmp
 import os
 from pathlib import Path
 
@@ -99,15 +98,15 @@ def _compare_file_pair(relative_path: str, left: Path, right: Path) -> FileRecor
         )
     )
     metadata_only = is_binary or is_too_large
-    left_hash = file_sha256(left) if metadata_only else None
-    right_hash = file_sha256(right) if metadata_only else None
+    left_hash = file_sha256(left)
+    right_hash = file_sha256(right)
     same_size = left_stat.st_size == right_stat.st_size
     same_hash = left_hash == right_hash
     delta = left_stat.st_mtime - right_stat.st_mtime
 
     if metadata_only and same_size and same_hash and abs(delta) < 2:
         state = CompareState.EQUAL
-    elif not metadata_only and same_size and filecmp.cmp(left, right, shallow=False):
+    elif not metadata_only and same_size and same_hash:
         state = CompareState.EQUAL
     else:
         if abs(delta) < 2:
@@ -146,8 +145,7 @@ def _single_side_record(
     stat = path.stat() if path else None
     is_binary = is_known_binary_file(path) if path else False
     is_too_large = bool(path and stat and not is_binary and is_too_large_for_text_diff(stat.st_size))
-    metadata_only = is_binary or is_too_large
-    digest = file_sha256(path) if path and metadata_only else None
+    digest = file_sha256(path) if path else None
     return FileRecord(
         relative_path=relative_path,
         kind=_record_kind(is_binary, is_too_large),

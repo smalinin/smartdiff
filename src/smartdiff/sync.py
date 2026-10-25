@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from .binary_files import file_sha256
 from .models import CompareResult, CompareState
 
 
@@ -23,6 +24,11 @@ class SyncResult:
     files_overwritten: int
     directories_created: int
     skipped_type_mismatch: int
+    conflicting_paths: tuple[str, ...] = ()
+
+    @property
+    def skipped_conflicts(self) -> int:
+        return len(self.conflicting_paths)
 
 
 def sync_directories(result: CompareResult, direction: SyncDirection) -> SyncResult:
@@ -32,6 +38,7 @@ def sync_directories(result: CompareResult, direction: SyncDirection) -> SyncRes
     RIGHT_TO_LEFT: RightOnly / RightYounger / Different -> copy to left
 
     TypeMismatch entries and any entry whose ancestor is TypeMismatch are skipped.
+    Files changed since comparison are skipped and reported as conflicts.
     No files are ever deleted.
     """
     if not result.is_directory_comparison:
@@ -56,6 +63,7 @@ def sync_directories(result: CompareResult, direction: SyncDirection) -> SyncRes
     overwritten = 0
     dirs_created = 0
     skipped = 0
+    conflicts: list[str] = []
 
     for entry in result.entries:
         if entry.state == CompareState.TYPE_MISMATCH:
@@ -85,8 +93,14 @@ def sync_directories(result: CompareResult, direction: SyncDirection) -> SyncRes
                 dirs_created += 1
             continue
 
-        if not source.is_file() or target.is_dir():
-            skipped += 1
+        if direction == SyncDirection.LEFT_TO_RIGHT:
+            source_snapshot = (entry.left_size, entry.left_mtime, entry.left_hash)
+            target_snapshot = (entry.right_size, entry.right_mtime, entry.right_hash)
+        else:
+            source_snapshot = (entry.right_size, entry.right_mtime, entry.right_hash)
+            target_snapshot = (entry.left_size, entry.left_mtime, entry.left_hash)
+        if not _matches_snapshot(source, *source_snapshot) or not _matches_snapshot(target, *target_snapshot):
+            conflicts.append(entry.relative_path)
             continue
 
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -98,7 +112,21 @@ def sync_directories(result: CompareResult, direction: SyncDirection) -> SyncRes
         else:
             new_files += 1
 
-    return SyncResult(new_files, overwritten, dirs_created, skipped)
+    return SyncResult(new_files, overwritten, dirs_created, skipped, tuple(conflicts))
+
+
+def _matches_snapshot(path: Path, size: int | None, mtime: float | None, digest: str | None) -> bool:
+    try:
+        if size is None:
+            return not path.exists() and not path.is_symlink()
+        if not path.is_file() or digest is None:
+            return False
+        current = path.stat()
+        if current.st_size != size or current.st_mtime != mtime:
+            return False
+        return file_sha256(path) == digest
+    except OSError:
+        return False
 
 
 def _has_blocked_ancestor(relative_path: str, blocked: set[str]) -> bool:

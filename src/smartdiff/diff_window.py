@@ -38,7 +38,13 @@ from PySide6.QtWidgets import (
 
 from .app_info import APP_NAME, about_text
 from .theme import DARK_THEME, LIGHT_THEME, Theme
-from .text_file import TextFileFormat, read_text_file, write_text_file
+from .text_file import (
+    TextFileFormat,
+    check_file_unchanged,
+    encode_text_file,
+    read_text_file,
+    write_text_file,
+)
 
 
 DIFF_FONT_FAMILY = "'Consolas', 'Cascadia Mono', 'Menlo', 'SF Mono', 'Liberation Mono', 'DejaVu Sans Mono', monospace"
@@ -475,8 +481,8 @@ class DiffPreviewPanel(QWidget):
 
         left_text = _safe_read(left_path)
         right_text = _safe_read(right_path)
-        self._left_lines = left_text.splitlines()
-        self._right_lines = right_text.splitlines()
+        self._left_lines = _normalize_line_endings(left_text).split("\n")
+        self._right_lines = _normalize_line_endings(right_text).split("\n")
         (
             left_display,
             right_display,
@@ -889,6 +895,14 @@ class DiffWindow(QMainWindow):
         right_file = read_text_file(self.right_path)
         self.left_file_format = left_file.format
         self.right_file_format = right_file.format
+        self.left_original_data = left_file.data
+        self.right_original_data = right_file.data
+        for edit, loaded in ((self.left_edit, left_file), (self.right_edit, right_file)):
+            edit.setReadOnly(not loaded.format.lossless)
+            edit.setToolTip(
+                "Read-only: unsupported or invalid encoding. Saving could lose data."
+                if not loaded.format.lossless else ""
+            )
         self.left_original = _normalize_line_endings(left_file.text)
         self.right_original = _normalize_line_endings(right_file.text)
         self.left_edit.setPlainText(self.left_original)
@@ -903,7 +917,8 @@ class DiffWindow(QMainWindow):
                 destructive_text="Reload without changes",
             )
             if answer == "save":
-                self.save()
+                if not self.save():
+                    return
             elif answer != "discard":
                 return
         self._undo_stack.clear()
@@ -951,7 +966,14 @@ class DiffWindow(QMainWindow):
             theme=self.theme,
         )
         self._set_display_texts(left_display, right_display, left_modified, right_modified)
-        self.status_label.setText("")
+        read_only_sides = [
+            side for side in ("left", "right")
+            if not getattr(self, f"{side}_file_format").lossless
+        ]
+        self.status_label.setText(
+            f"Read-only ({', '.join(read_only_sides)}): unsupported or invalid encoding."
+            if read_only_sides else ""
+        )
         self._normalize_current_diff_index()
         self._update_diff_counter()
         if self.find_query:
@@ -1045,24 +1067,28 @@ class DiffWindow(QMainWindow):
                 left_delete = _action_button("x", _delete_tooltip(block, "left"), self.action_panel, "DeleteActionButton")
                 left_delete.clicked.connect(lambda _checked=False, item=block: self.delete_diff_block(item, "left"))
                 left_delete.setGeometry(columns[0], y, 20, 20)
+                left_delete.setEnabled(not self.left_edit.isReadOnly())
                 buttons.append(left_delete)
 
             if _block_has_side_lines(block, "left"):
                 copy_right = _action_button("\u00bb", _block_tooltip(block, "left", "right"), self.action_panel, "CopyActionButton")
                 copy_right.clicked.connect(lambda _checked=False, item=block: self.copy_diff_block(item, "left", "right"))
                 copy_right.setGeometry(columns[1], y, 20, 20)
+                copy_right.setEnabled(not self.left_edit.isReadOnly() and not self.right_edit.isReadOnly())
                 buttons.append(copy_right)
 
             if _block_has_side_lines(block, "right"):
                 copy_left = _action_button("\u00ab", _block_tooltip(block, "right", "left"), self.action_panel, "CopyActionButton")
                 copy_left.clicked.connect(lambda _checked=False, item=block: self.copy_diff_block(item, "right", "left"))
                 copy_left.setGeometry(columns[2], y, 20, 20)
+                copy_left.setEnabled(not self.left_edit.isReadOnly() and not self.right_edit.isReadOnly())
                 buttons.append(copy_left)
 
             if show_delete_buttons and _block_has_side_lines(block, "right"):
                 right_delete = _action_button("x", _delete_tooltip(block, "right"), self.action_panel, "DeleteActionButton")
                 right_delete.clicked.connect(lambda _checked=False, item=block: self.delete_diff_block(item, "right"))
                 right_delete.setGeometry(columns[3], y, 20, 20)
+                right_delete.setEnabled(not self.right_edit.isReadOnly())
                 buttons.append(right_delete)
 
             for button in buttons:
@@ -1177,7 +1203,7 @@ class DiffWindow(QMainWindow):
         cursor.setPosition(match.start)
         cursor.setPosition(match.end, QTextCursor.MoveMode.KeepAnchor)
         edit.setTextCursor(cursor)
-        edit.centerCursor()
+        edit.ensureCursorVisible()
         edit.setFocus()
         self._apply_selections()
 
@@ -1225,12 +1251,17 @@ class DiffWindow(QMainWindow):
         if self.find_query:
             text = self._active_edit().toPlainText()
             start = 0
+            qt_position = 0
+            query_length = _utf16_length(self.find_query)
             while True:
                 index = text.find(self.find_query, start)
                 if index < 0:
                     break
-                self.find_matches.append(FindMatch(self.active_side, index, index + len(self.find_query)))
-                start = index + max(1, len(self.find_query))
+                match_start = qt_position + _utf16_length(text[start:index])
+                match_end = match_start + query_length
+                self.find_matches.append(FindMatch(self.active_side, match_start, match_end))
+                start = index + len(self.find_query)
+                qt_position = match_end
         self.current_find_index = min(previous, len(self.find_matches) - 1)
         self.status_label.setText(f"{len(self.find_matches)} match(es)" if self.find_query else self.status_label.text())
 
@@ -1321,9 +1352,11 @@ class DiffWindow(QMainWindow):
         block = edit.document().findBlockByNumber(target_line)
         if not block.isValid():
             return 0
-        return block.position() + min(column, len(block.text()))
+        return block.position() + min(column, block.length() - 1)
 
     def copy_current_line(self, source_side: str, target_side: str) -> None:
+        if self.left_edit.isReadOnly() or self.right_edit.isReadOnly():
+            return
         self._push_undo_snapshot()
         source_edit = self.left_edit if source_side == "left" else self.right_edit
         line_number = source_edit.textCursor().blockNumber()
@@ -1342,6 +1375,8 @@ class DiffWindow(QMainWindow):
             self._render_logical_lines(self._logical_lines("left"), target_lines)
 
     def copy_current_block(self, source_side: str, target_side: str) -> None:
+        if self.left_edit.isReadOnly() or self.right_edit.isReadOnly():
+            return
         self._push_undo_snapshot()
         source_edit = self.left_edit if source_side == "left" else self.right_edit
         target_edit = self.left_edit if target_side == "left" else self.right_edit
@@ -1368,6 +1403,8 @@ class DiffWindow(QMainWindow):
         self.recompare()
 
     def copy_diff_block(self, block: DiffBlock, source_side: str, target_side: str) -> None:
+        if self.left_edit.isReadOnly() or self.right_edit.isReadOnly():
+            return
         self._push_undo_snapshot()
         source_start, source_end = _block_range(block, source_side)
         target_start, target_end = _block_range(block, target_side)
@@ -1384,6 +1421,9 @@ class DiffWindow(QMainWindow):
             self._render_logical_lines(self._logical_lines("left"), target_lines)
 
     def delete_diff_block(self, block: DiffBlock, side: str) -> None:
+        edit = self.left_edit if side == "left" else self.right_edit
+        if edit.isReadOnly():
+            return
         self._push_undo_snapshot()
         start, end = _block_range(block, side)
         if start >= end:
@@ -1414,17 +1454,37 @@ class DiffWindow(QMainWindow):
 
         return start, end
 
-    def save(self) -> None:
-        left_text = self._logical_text("left")
-        right_text = self._logical_text("right")
-        write_text_file(self.left_path, left_text, self.left_file_format)
-        write_text_file(self.right_path, right_text, self.right_file_format)
-        self.left_original = left_text
-        self.right_original = right_text
-        self.left_edit.document().setModified(False)
-        self.right_edit.document().setModified(False)
+    def save(self) -> bool:
+        pending: list[tuple[str, Path, str, TextFileFormat, bytes]] = []
+        saved = False
+        try:
+            # Validate every changed side before writing either file.
+            for side in ("left", "right"):
+                text = self._logical_text(side)
+                if text == getattr(self, f"{side}_original"):
+                    getattr(self, f"{side}_edit").document().setModified(False)
+                    continue
+                path = getattr(self, f"{side}_path")
+                file_format = getattr(self, f"{side}_file_format")
+                original_data = getattr(self, f"{side}_original_data")
+                encode_text_file(text, file_format)
+                check_file_unchanged(path, original_data)
+                pending.append((side, path, text, file_format, original_data))
+            for side, path, text, file_format, original_data in pending:
+                data = write_text_file(path, text, file_format, expected_data=original_data)
+                setattr(self, f"{side}_original", text)
+                setattr(self, f"{side}_original_data", data)
+                getattr(self, f"{side}_edit").document().setModified(False)
+                saved = True
+        except (OSError, ValueError) as exc:
+            if saved:
+                self.files_saved.emit()
+            QMessageBox.critical(self, "Save failed", str(exc))
+            return False
         self.status_label.setText("Saved")
-        self.files_saved.emit()
+        if saved:
+            self.files_saved.emit()
+        return True
 
     def closeEvent(self, event) -> None:  # noqa: ANN001
         if self._has_unsaved_changes():
@@ -1433,7 +1493,9 @@ class DiffWindow(QMainWindow):
                 destructive_text="Close without changes",
             )
             if answer == "save":
-                self.save()
+                if not self.save():
+                    event.ignore()
+                    return
             elif answer == "cancel":
                 event.ignore()
                 return
@@ -1892,9 +1954,19 @@ def _line_selection(edit: QTextEdit, line: int, color: str) -> QTextEdit.ExtraSe
     return selection
 
 
+def _utf16_length(text: str) -> int:
+    return len(text.encode("utf-16-le", errors="surrogatepass")) // 2
+
+
 def _range_selection(edit: QTextEdit, line: int, start: int, end: int, color: str) -> QTextEdit.ExtraSelection:
     block = edit.document().findBlockByNumber(line)
-    return _absolute_selection(edit, block.position() + start, block.position() + end, color)
+    text = block.text()
+    return _absolute_selection(
+        edit,
+        block.position() + _utf16_length(text[:start]),
+        block.position() + _utf16_length(text[:end]),
+        color,
+    )
 
 
 def _absolute_selection(edit: QTextEdit, start: int, end: int, color: str) -> QTextEdit.ExtraSelection:

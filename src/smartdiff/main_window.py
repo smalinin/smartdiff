@@ -303,7 +303,18 @@ class MainWindow(QMainWindow):
         if sync_result.skipped_type_mismatch:
             parts.append(f"{sync_result.skipped_type_mismatch} skipped (type mismatch)")
         msg = ", ".join(parts) if parts else "Nothing to sync."
-        QMessageBox.information(self, f"Sync {label} complete", msg)
+        if sync_result.skipped_conflicts:
+            paths = "\n".join(sync_result.conflicting_paths[:10])
+            if sync_result.skipped_conflicts > 10:
+                paths += "\n..."
+            QMessageBox.warning(
+                self,
+                f"Sync {label}: conflicts",
+                f"{msg}\n\n{sync_result.skipped_conflicts} file(s) changed since comparison "
+                f"and were skipped:\n{paths}\n\nCompare again before synchronizing these files.",
+            )
+        else:
+            QMessageBox.information(self, f"Sync {label} complete", msg)
 
     def populate_table(self, retained_paths: set[str] | None = None) -> None:
         if self.result is None:

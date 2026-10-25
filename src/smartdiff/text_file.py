@@ -4,6 +4,9 @@
 #
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 from codecs import BOM_UTF16_BE, BOM_UTF16_LE, BOM_UTF8
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,12 +17,14 @@ class TextFileFormat:
     encoding: str
     bom: bytes = b""
     newline: str = "\n"
+    lossless: bool = True
 
 
 @dataclass(frozen=True)
 class LoadedTextFile:
     text: str
     format: TextFileFormat
+    data: bytes = b""
 
 
 def read_text_file(path: Path) -> LoadedTextFile:
@@ -31,14 +36,50 @@ def read_text_file(path: Path) -> LoadedTextFile:
             encoding=encoding,
             bom=bom,
             newline=_detect_newline(text),
+            lossless=bom + text.encode(encoding) == data,
         ),
+        data=data,
     )
 
 
-def write_text_file(path: Path, text: str, file_format: TextFileFormat) -> None:
+def encode_text_file(text: str, file_format: TextFileFormat) -> bytes:
+    if not file_format.lossless:
+        raise ValueError("The file could not be decoded without data loss. Saving is disabled.")
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     serialized = normalized if file_format.newline == "\n" else normalized.replace("\n", file_format.newline)
-    path.write_bytes(file_format.bom + serialized.encode(file_format.encoding))
+    return file_format.bom + serialized.encode(file_format.encoding)
+
+
+def check_file_unchanged(path: Path, expected_data: bytes) -> None:
+    if path.read_bytes() != expected_data:
+        raise ValueError(f"{path} changed on disk. Reload the files before saving.")
+
+
+def write_text_file(
+    path: Path,
+    text: str,
+    file_format: TextFileFormat,
+    *,
+    expected_data: bytes | None = None,
+) -> bytes:
+    data = encode_text_file(text, file_format)
+    target = path.resolve()
+    if expected_data is not None:
+        check_file_unchanged(target, expected_data)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(data)
+        if target.exists():
+            shutil.copymode(target, temporary_path)
+        if expected_data is not None:
+            check_file_unchanged(target, expected_data)
+        os.replace(temporary_path, target)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+    return data
 
 
 def _decode_text_bytes(data: bytes) -> tuple[str, str, bytes]:
