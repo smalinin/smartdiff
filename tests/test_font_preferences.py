@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PySide6.QtCore import QEvent
-from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase, QFontInfo
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
@@ -94,13 +94,20 @@ class FontPreferencesTests(unittest.TestCase):
         self.addCleanup(self.dispose, dialog)
         self.assertEqual(dialog.editor_font_size.value(), 16.5)
         if family:
-            self.assertEqual(dialog.editor_font_combo.currentFont().family(), family)
+            self.assertEqual(
+                QFontInfo(dialog.editor_font_combo.currentFont()).family(),
+                QFontInfo(QFont(family)).family(),
+            )
             dialog.editor_font_combo.setCurrentFont(QFont(families[-1]))
         dialog.editor_font_size.setValue(22)
         result = dialog.settings()
         self.assertEqual(result.editor_font_size, 22)
         if family:
-            self.assertEqual(result.editor_font_family, families[-1])
+            # A generic family such as Serif can resolve to DejaVu Serif on Linux.
+            self.assertEqual(
+                QFontInfo(QFont(result.editor_font_family)).family(),
+                QFontInfo(QFont(families[-1])).family(),
+            )
         self.assertEqual(result.binary_extensions, app_settings.get_settings().binary_extensions)
 
     def test_preferences_update_open_editors_preview_and_line_numbers(self):
@@ -154,7 +161,10 @@ class FontPreferencesTests(unittest.TestCase):
         families = QFontDatabase.families()
         if families:
             dialog.editor_font_combo.setCurrentFont(QFont(families[-1]))
-            self.assertIn(families[-1], dialog.font_preview.font().families())
+            self.assertEqual(
+                dialog.font_preview.fontInfo().family(),
+                QFontInfo(QFont(families[-1])).family(),
+            )
         for size in (6, 18.5, 72):
             dialog.editor_font_size.setValue(size)
             self.assertEqual(dialog.font_preview.font().pointSizeF(), size)
