@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -187,6 +188,22 @@ class DiffRenderingTests(unittest.TestCase):
         preview._move_diff(0)
         self.assertEqual(preview.left_edit.verticalScrollBar().value(), 0)
         self.assertEqual(preview.right_edit.verticalScrollBar().value(), 0)
+
+    def test_gaps_follow_document_height_when_font_metrics_round_differently(self):
+        for extra_lines in (1, 60):
+            with self.subTest(extra_lines=extra_lines):
+                left = "anchor0\nold\nanchor1\n"
+                right = "anchor0\n" + "\n".join(f"new{i}" for i in range(extra_lines + 1)) + "\nanchor1\n"
+                window = self.make_window(left, right)
+                metrics = Mock(wraps=window.left_edit.fontMetrics())
+                metrics.lineSpacing.return_value = window.left_edit.fontMetrics().lineSpacing() + 1
+                with patch.object(window.left_edit, "fontMetrics", return_value=metrics):
+                    window.recompare()
+                    left_document = window.left_edit.document()
+                    right_document = window.right_edit.document()
+                    left_top = left_document.documentLayout().blockBoundingRect(left_document.findBlockByNumber(2)).top()
+                    right_top = right_document.documentLayout().blockBoundingRect(right_document.findBlockByNumber(extra_lines + 2)).top()
+                    self.assertEqual(left_top, right_top)
 
     def test_connector_edges_match_editor_lines(self):
         window = self.make_window("anchor\nold\ntail", "anchor\nnew1\nnew2\ntail")

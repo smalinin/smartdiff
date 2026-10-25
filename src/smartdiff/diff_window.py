@@ -153,12 +153,17 @@ class CodeEditor(QTextEdit):
         self.gap_hatch = QColor(hatch)
         self.viewport().update()
 
+    def text_line_height(self) -> float:
+        # QFontMetrics rounds to integers; the document layout may use fractional heights.
+        document = self.document()
+        return max(1.0, document.documentLayout().blockBoundingRect(document.firstBlock()).height())
+
     def set_visual_gaps(self, gaps: dict[int, int]) -> None:
         self.visual_gaps = {line: count for line, count in gaps.items() if count > 0}
         was_modified = self.document().isModified()
         previous_blocked = self.blockSignals(True)
         block_count = self.document().blockCount()
-        line_height = self.fontMetrics().lineSpacing()
+        line_height = self.text_line_height()
         root_frame = self.document().rootFrame()
         frame_format = root_frame.frameFormat()
         leading_gap = self.visual_gaps.get(0, 0)
@@ -213,7 +218,7 @@ class CodeEditor(QTextEdit):
         count = self.visual_gaps.get(before_line, 0)
         if count <= 0:
             return None
-        height = count * self.fontMetrics().lineSpacing()
+        height = round(count * self.text_line_height())
         if before_line < self.document().blockCount():
             block = self.document().findBlockByNumber(before_line)
             y = self.cursorRect(QTextCursor(block)).top() - height
@@ -232,7 +237,7 @@ class CodeEditor(QTextEdit):
         if not block.isValid():
             return
         document_y = self.document().documentLayout().blockBoundingRect(block).top()
-        target = round(document_y - context_lines * self.fontMetrics().lineSpacing())
+        target = round(document_y - context_lines * self.text_line_height())
         self.verticalScrollBar().setValue(max(0, min(target, self.verticalScrollBar().maximum())))
 
     def paintEvent(self, event) -> None:  # noqa: ANN001
@@ -2062,9 +2067,9 @@ def _scroll_editors_to_diff(left: CodeEditor, right: CodeEditor, block: DiffBloc
             rect = edit.block_viewport_rect(text_block)
             top = rect.bottom() + 1 if start >= edit.blockCount() else rect.top()
         positions.append(top + edit.verticalScrollBar().value())
-    context = 3 * max(left.fontMetrics().lineSpacing(), right.fontMetrics().lineSpacing())
+    context = 3 * max(left.text_line_height(), right.text_line_height())
     maximum = min(left.verticalScrollBar().maximum(), right.verticalScrollBar().maximum())
-    target = max(0, min(min(positions) - context, maximum))
+    target = max(0, min(round(min(positions) - context), maximum))
     for edit in (left, right):
         edit.verticalScrollBar().setValue(target)
 

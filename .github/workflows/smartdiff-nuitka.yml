@@ -52,6 +52,13 @@ jobs:
       - name: Install uv
         run: python -m pip install uv
 
+      - name: Install Qt runtime dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libopengl0 libxkbcommon0 libfontconfig1 fonts-dejavu-core
+
       - name: Verify Python sources
         run: uv run python -m compileall src smartdiff_nuitka_windows.py smartdiff_nuitka_linux.py smartdiff_nuitka_macos.py smartdiff_nuitka_macos_x86.py
 
