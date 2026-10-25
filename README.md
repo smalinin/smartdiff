@@ -14,7 +14,7 @@ uv run smartdiff --d C:\left C:\right
 uv run smartdiff C:\left\file.py C:\right\file.py
 ```
 
-`--d` disables subdirectory scanning when comparing directories.
+`--d` (or `/d`) disables subdirectory scanning when comparing directories.
 
 ## Build EXE
 
@@ -66,7 +66,7 @@ release builds.
 - Ignore whitespace, ignore case, and light/dark theme options.
 - Binary files and text files over 10 MB are compared by size, timestamp, and SHA-256 without text diff.
 - Recursive directory scans skip known generated/service directories such as `.git`, `.venv`, `__pycache__`, and `node_modules`.
-- `File -> Preferences...` edits binary extensions, ignored directories, and max text diff size in `~/.smartdiff/settings.json`.
+- `File -> Preferences...` edits the editor font and size (6-72 pt), binary extensions, ignored directories, and max text diff size in `~/.smartdiff/settings.json`. Font changes apply immediately to open diff windows and the preview.
 
 ## License
 

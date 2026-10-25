@@ -25,7 +25,7 @@ DARK_THEME = Theme(
     name="Dark",
     stylesheet="""
         QMainWindow { background: #0e1621; }
-        QWidget { background: #0e1621; color: #d4e4f7; font-family: 'Segoe UI', Inter, system-ui, sans-serif; font-size: 9pt; }
+        QWidget { background: #0e1621; color: #d4e4f7; font-family: 'Segoe UI', Inter, system-ui, sans-serif; font-size: 10pt; }
         QMenuBar { background: #111d2c; color: #c8dff5; border-bottom: 1px solid #1c3347; padding: 1px 4px; spacing: 2px; }
         QMenuBar::item { padding: 4px 10px; border-radius: 4px; }
         QMenuBar::item:selected { background: #1a3550; }
@@ -39,7 +39,7 @@ DARK_THEME = Theme(
         QTreeWidget { background: #090f18; color: #c0d8f2; border: 1px solid #172537; alternate-background-color: #0b1522; }
         QTreeWidget::item:selected { background: #133050; }
         QTreeWidget::item:hover:!selected { background: #0d1e32; }
-        QHeaderView::section { background: #0d1929; color: #6a90bb; border: 0; border-bottom: 1px solid #1c3347; padding: 6px 8px; font-weight: 600; font-size: 8pt; }
+        QHeaderView::section { background: #0d1929; color: #6a90bb; border: 0; border-bottom: 1px solid #1c3347; padding: 6px 8px; font-weight: 600; font-size: 9pt; }
         QPushButton { background: #122337; color: #c0d8f2; border: 1px solid #1e3d5c; border-radius: 6px; padding: 5px 12px; font-weight: 500; }
         QPushButton:hover { background: #183049; border-color: #2e6090; }
         QPushButton:pressed { background: #0d1929; }
@@ -56,18 +56,18 @@ DARK_THEME = Theme(
         QScrollBar::handle:horizontal:hover { background: #2e6090; }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
         QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
-        QPushButton#CopyActionButton { background: rgba(9, 15, 24, 210); border: 1px solid #1e4d8c; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 22px; font-weight: 900; color: #7cff8d; padding: -6px 0 1px 0; }
+        QPushButton#CopyActionButton { background: rgba(9, 15, 24, 210); border: 1px solid #1e4d8c; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 17.5pt; font-weight: 900; color: #7cff8d; padding: -6px 0 1px 0; }
         QPushButton#CopyActionButton:hover { background: rgba(30, 77, 140, 55); border-color: #55b3ff; }
-        QPushButton#DeleteActionButton { background: rgba(9, 15, 24, 210); border: 1px solid #8b1e1e; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 16px; font-weight: 700; color: #ff7070; padding: -2px 0 3px 0; }
+        QPushButton#DeleteActionButton { background: rgba(9, 15, 24, 210); border: 1px solid #8b1e1e; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 13pt; font-weight: 700; color: #ff7070; padding: -2px 0 3px 0; }
         QPushButton#DeleteActionButton:hover { background: rgba(139, 30, 30, 45); border-color: #ff7070; }
-        QPushButton#NavButton { background: #122337; color: #55b3ff; border: 1px solid #1e3d5c; border-radius: 5px; min-width: 22px; max-width: 22px; min-height: 22px; padding: 0 2px; font-size: 11px; font-weight: 600; }
+        QPushButton#NavButton { background: #122337; color: #55b3ff; border: 1px solid #1e3d5c; border-radius: 5px; min-width: 22px; max-width: 22px; min-height: 22px; padding: 0 2px; font-size: 9.25pt; font-weight: 600; }
         QPushButton#NavButton:hover { background: #183049; border-color: #2e6090; }
         QWidget#ActionPanel { background: #0c1825; border-left: 1px solid #162234; border-right: 1px solid #162234; }
         QWidget#DiffMinimap { background: #080f18; border-left: 1px solid #162234; }
         QWidget#TitleBar { background: #111d2c; }
         QWidget#TitleSeparator { background-color: #1a3050; }
-        QLabel#PathLabel { color: #4e80a8; font-family: 'Cascadia Code', Consolas, monospace; font-size: 8.5pt; }
-        QLabel#ActionTitle { color: #3a6080; font-size: 8pt; font-weight: 700; }
+        QLabel#PathLabel { color: #4e80a8; font-family: 'Cascadia Code', Consolas, monospace; font-size: 9.5pt; }
+        QLabel#ActionTitle { color: #3a6080; font-size: 9pt; font-weight: 700; }
         QSplitter::handle { background: #162234; }
         QTreeWidget::item { padding: 3px 6px; }
         QTreeWidget::branch { background: #090f18; }
@@ -78,7 +78,7 @@ DARK_THEME = Theme(
         QWidget#ToolBar { background: #0d1c2e; border-bottom: 1px solid #1c3347; }
         QWidget#StatsBar { background: #090f18; border-bottom: 1px solid #162234; }
         QLabel#PathDirLabel { color: #4e80a8; font-weight: 600; }
-        QLabel#StatsLabel { color: #6a90bb; font-size: 8.5pt; }
+        QLabel#StatsLabel { color: #6a90bb; font-size: 9.5pt; }
         QPushButton#CompareButton { background: #1a4d8c; color: #c8e4ff; border-color: #2e6ab5; font-weight: 600; }
         QPushButton#CompareButton:hover { background: #2060b0; border-color: #4090e0; }
         QPushButton#CompareButton:pressed { background: #153d72; }
@@ -87,10 +87,10 @@ DARK_THEME = Theme(
         QPushButton#SyncButton:pressed { background: #163824; }
         QPushButton#SyncButton:disabled { background: #0f1e14; color: #3a5040; border-color: #1a3020; }
         QWidget#PreviewHeader { background: #0d1c2e; border-bottom: 1px solid #1c3347; }
-        QLabel#PreviewFileLabel { color: #c8e4ff; font-weight: 700; font-size: 9.5pt; }
-        QLabel#PreviewStateLabel { color: #6a90bb; font-size: 8.5pt; }
-        QLabel#PreviewMetaLabel { color: #4a6e8a; font-size: 8pt; font-family: 'Cascadia Code', Consolas, monospace; }
-        QLabel#PreviewCounterLabel { color: #4a6e8a; font-size: 8.5pt; min-width: 40px; }
+        QLabel#PreviewFileLabel { color: #c8e4ff; font-weight: 700; font-size: 10.5pt; }
+        QLabel#PreviewStateLabel { color: #6a90bb; font-size: 9.5pt; }
+        QLabel#PreviewMetaLabel { color: #4a6e8a; font-size: 9pt; font-family: 'Cascadia Code', Consolas, monospace; }
+        QLabel#PreviewCounterLabel { color: #4a6e8a; font-size: 9.5pt; min-width: 40px; }
     """,
     editor_background="#090f18",
     editor_foreground="#c8dff5",
@@ -107,7 +107,7 @@ LIGHT_THEME = Theme(
     name="Light",
     stylesheet="""
         QMainWindow { background: #f0f4f8; }
-        QWidget { background: #f0f4f8; color: #1a2d42; font-family: 'Segoe UI', Inter, system-ui, sans-serif; font-size: 9pt; }
+        QWidget { background: #f0f4f8; color: #1a2d42; font-family: 'Segoe UI', Inter, system-ui, sans-serif; font-size: 10pt; }
         QMenuBar { background: #e2ecf5; color: #1a2d42; border-bottom: 1px solid #c0d4e8; padding: 1px 4px; spacing: 2px; }
         QMenuBar::item { padding: 4px 10px; border-radius: 4px; }
         QMenuBar::item:selected { background: #d0e4f5; }
@@ -121,7 +121,7 @@ LIGHT_THEME = Theme(
         QTreeWidget { background: #ffffff; color: #1a2d42; border: 1px solid #d0dce8; alternate-background-color: #f7fafd; }
         QTreeWidget::item:selected { background: #cce4fb; }
         QTreeWidget::item:hover:!selected { background: #eef5fc; }
-        QHeaderView::section { background: #e8f0f8; color: #4a6a85; border: 0; border-bottom: 1px solid #c0d4e8; padding: 6px 8px; font-weight: 600; font-size: 8pt; }
+        QHeaderView::section { background: #e8f0f8; color: #4a6a85; border: 0; border-bottom: 1px solid #c0d4e8; padding: 6px 8px; font-weight: 600; font-size: 9pt; }
         QPushButton { background: #ffffff; color: #1a2d42; border: 1px solid #c0d4e8; border-radius: 6px; padding: 5px 12px; font-weight: 500; }
         QPushButton:hover { background: #e4f0fd; border-color: #7ab0d8; }
         QPushButton:pressed { background: #d0e8f8; }
@@ -138,18 +138,18 @@ LIGHT_THEME = Theme(
         QScrollBar::handle:horizontal:hover { background: #8aaabf; }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
         QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
-        QPushButton#CopyActionButton { background: rgba(255, 255, 255, 220); border: 1px solid #3a82d6; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 22px; font-weight: 900; color: #128a28; padding: -6px 0 1px 0; }
+        QPushButton#CopyActionButton { background: rgba(255, 255, 255, 220); border: 1px solid #3a82d6; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 17.5pt; font-weight: 900; color: #128a28; padding: -6px 0 1px 0; }
         QPushButton#CopyActionButton:hover { background: rgba(58, 130, 214, 25); border-color: #1a6ab5; }
-        QPushButton#DeleteActionButton { background: rgba(255, 255, 255, 220); border: 1px solid #e05050; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 16px; font-weight: 700; color: #c03030; padding: -2px 0 3px 0; }
+        QPushButton#DeleteActionButton { background: rgba(255, 255, 255, 220); border: 1px solid #e05050; border-radius: 5px; min-width: 22px; min-height: 20px; font-size: 13pt; font-weight: 700; color: #c03030; padding: -2px 0 3px 0; }
         QPushButton#DeleteActionButton:hover { background: rgba(224, 80, 80, 20); border-color: #c03030; }
-        QPushButton#NavButton { background: #ffffff; color: #1a6ab5; border: 1px solid #c0d4e8; border-radius: 5px; min-width: 22px; max-width: 22px; min-height: 22px; padding: 0 2px; font-size: 11px; font-weight: 600; }
+        QPushButton#NavButton { background: #ffffff; color: #1a6ab5; border: 1px solid #c0d4e8; border-radius: 5px; min-width: 22px; max-width: 22px; min-height: 22px; padding: 0 2px; font-size: 9.25pt; font-weight: 600; }
         QPushButton#NavButton:hover { background: #e4f0fd; border-color: #7ab0d8; }
         QWidget#ActionPanel { background: #e0eaf5; border-left: 1px solid #c0d4e8; border-right: 1px solid #c0d4e8; }
         QWidget#DiffMinimap { background: #eef4fa; border-left: 1px solid #c0d4e8; }
         QWidget#TitleBar { background: #e2ecf5; }
         QWidget#TitleSeparator { background-color: #b8d0e8; }
-        QLabel#PathLabel { color: #5080a8; font-family: 'Cascadia Code', Consolas, monospace; font-size: 8.5pt; }
-        QLabel#ActionTitle { color: #7090aa; font-size: 8pt; font-weight: 700; }
+        QLabel#PathLabel { color: #5080a8; font-family: 'Cascadia Code', Consolas, monospace; font-size: 9.5pt; }
+        QLabel#ActionTitle { color: #7090aa; font-size: 9pt; font-weight: 700; }
         QSplitter::handle { background: #c0d4e8; }
         QTreeWidget::item { padding: 3px 6px; }
         QTreeWidget::branch { background: #ffffff; }
@@ -160,7 +160,7 @@ LIGHT_THEME = Theme(
         QWidget#ToolBar { background: #e2ecf5; border-bottom: 1px solid #c0d4e8; }
         QWidget#StatsBar { background: #f5f8fb; border-bottom: 1px solid #d4e4f0; }
         QLabel#PathDirLabel { color: #3a6090; font-weight: 600; }
-        QLabel#StatsLabel { color: #5a7a95; font-size: 8.5pt; }
+        QLabel#StatsLabel { color: #5a7a95; font-size: 9.5pt; }
         QPushButton#CompareButton { background: #3a82d6; color: #ffffff; border-color: #2a72c6; font-weight: 600; }
         QPushButton#CompareButton:hover { background: #2a72c6; border-color: #1a62b6; }
         QPushButton#CompareButton:pressed { background: #1a62b6; }
@@ -169,10 +169,10 @@ LIGHT_THEME = Theme(
         QPushButton#SyncButton:pressed { background: #a8dcc0; }
         QPushButton#SyncButton:disabled { background: #eef5f0; color: #90b8a0; border-color: #c0d8c8; }
         QWidget#PreviewHeader { background: #e2ecf5; border-bottom: 1px solid #c0d4e8; }
-        QLabel#PreviewFileLabel { color: #1a2d42; font-weight: 700; font-size: 9.5pt; }
-        QLabel#PreviewStateLabel { color: #4a6a85; font-size: 8.5pt; }
-        QLabel#PreviewMetaLabel { color: #7090aa; font-size: 8pt; font-family: 'Cascadia Code', Consolas, monospace; }
-        QLabel#PreviewCounterLabel { color: #7090aa; font-size: 8.5pt; min-width: 40px; }
+        QLabel#PreviewFileLabel { color: #1a2d42; font-weight: 700; font-size: 10.5pt; }
+        QLabel#PreviewStateLabel { color: #4a6a85; font-size: 9.5pt; }
+        QLabel#PreviewMetaLabel { color: #7090aa; font-size: 9pt; font-family: 'Cascadia Code', Consolas, monospace; }
+        QLabel#PreviewCounterLabel { color: #7090aa; font-size: 9.5pt; min-width: 40px; }
     """,
     editor_background="#ffffff",
     editor_foreground="#1a2d42",

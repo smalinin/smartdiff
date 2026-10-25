@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from .app_info import APP_NAME, about_text
+from .editor_font import editor_font_stylesheet
 from .theme import DARK_THEME, LIGHT_THEME, Theme
 from .text_file import (
     TextFileFormat,
@@ -47,8 +48,6 @@ from .text_file import (
 )
 
 
-DIFF_FONT_FAMILY = "'Consolas', 'Cascadia Mono', 'Menlo', 'SF Mono', 'Liberation Mono', 'DejaVu Sans Mono', monospace"
-DIFF_FONT_SIZE = "14px"
 ACTION_PANEL_WIDTH = 112
 ACTION_BUTTON_SIZE = 24
 ACTION_BUTTON_GAP = 2
@@ -130,7 +129,12 @@ class CodeEditor(QTextEdit):
         return self.document().blockCount()
 
     def update_line_number_area_width(self, _block_count: int) -> None:
-        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+        width = self.line_number_area_width()
+        self.setViewportMargins(width, 0, 0, 0)
+        contents = self.contentsRect()
+        self.line_number_area.setGeometry(
+            QRect(contents.left(), contents.top(), width, contents.height())
+        )
 
     def resizeEvent(self, event) -> None:  # noqa: ANN001
         super().resizeEvent(event)
@@ -250,6 +254,7 @@ class CodeEditor(QTextEdit):
 
     def line_number_area_paint_event(self, event) -> None:  # noqa: ANN001
         painter = QPainter(self.line_number_area)
+        painter.setFont(self.font())
         painter.fillRect(event.rect(), self.line_number_background)
         painter.setPen(self.line_number_foreground)
 
@@ -600,12 +605,13 @@ class DiffPreviewPanel(QWidget):
         editor_style = (
             f"QTextEdit {{ background: {self.theme.editor_background}; "
             f"color: {self.theme.editor_foreground}; "
-            f"font-family: {DIFF_FONT_FAMILY}; "
-            f"font-size: {DIFF_FONT_SIZE}; "
-            f"selection-background-color: {sel_color}; }}"
+            + editor_font_stylesheet()
+            + f"selection-background-color: {sel_color}; }}"
         )
         self.left_edit.setStyleSheet(editor_style)
         self.right_edit.setStyleSheet(editor_style)
+        self.left_edit.update_line_number_area_width(0)
+        self.right_edit.update_line_number_area_width(0)
         ln_bg = "#e4ecf4" if self.theme.name == "Light" else "#070e17"
         ln_fg = "#8aaac4" if self.theme.name == "Light" else "#2e5878"
         self.left_edit.set_line_number_colors(ln_bg, ln_fg)
@@ -997,16 +1003,6 @@ class DiffWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(theme.stylesheet)
-        sel_color = "#1e3d6e" if theme.name == "Dark" else "#add6ff"
-        editor_style = (
-            f"QTextEdit {{ background: {theme.editor_background}; "
-            f"color: {theme.editor_foreground}; "
-            f"font-family: {DIFF_FONT_FAMILY}; "
-            f"font-size: {DIFF_FONT_SIZE}; "
-            f"selection-background-color: {sel_color}; }}"
-        )
-        self.left_edit.setStyleSheet(editor_style)
-        self.right_edit.setStyleSheet(editor_style)
         self.minimap.update()
         line_number_background = "#e4ecf4" if theme.name == "Light" else "#070e17"
         line_number_foreground = "#8aaac4" if theme.name == "Light" else "#2e5878"
@@ -1016,8 +1012,22 @@ class DiffWindow(QMainWindow):
         gap_hatch = "#d8e1ea" if theme.name == "Light" else "#142231"
         self.left_edit.set_gap_colors(gap_bg, gap_hatch)
         self.right_edit.set_gap_colors(gap_bg, gap_hatch)
-        self.recompare()
+        self.apply_editor_font()
         self.theme_changed.emit(theme.name == "Dark")
+
+    def apply_editor_font(self) -> None:
+        sel_color = "#1e3d6e" if self.theme.name == "Dark" else "#add6ff"
+        editor_style = (
+            f"QTextEdit {{ background: {self.theme.editor_background}; "
+            f"color: {self.theme.editor_foreground}; "
+            + editor_font_stylesheet()
+            + f"selection-background-color: {sel_color}; }}"
+        )
+        for edit in (self.left_edit, self.right_edit):
+            edit.setStyleSheet(editor_style)
+            edit.update_line_number_area_width(0)
+        self.recompare()
+        self.action_panel.update()
 
     def _apply_selections(self) -> None:
         self.left_edit.setExtraSelections(self._selections_for("left"))

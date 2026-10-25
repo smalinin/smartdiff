@@ -11,6 +11,9 @@ from typing import Any
 
 
 DEFAULT_MAX_TEXT_DIFF_BYTES = 10 * 1024 * 1024
+DEFAULT_EDITOR_FONT_SIZE = 11.5
+MIN_EDITOR_FONT_SIZE = 6.0
+MAX_EDITOR_FONT_SIZE = 72.0
 
 DEFAULT_BINARY_EXTENSIONS = {
     ".7z",
@@ -116,6 +119,8 @@ class AppSettings:
     binary_extensions: set[str]
     ignored_subdirectory_names: set[str]
     max_text_diff_bytes: int
+    editor_font_family: str = ""
+    editor_font_size: float = DEFAULT_EDITOR_FONT_SIZE
 
 
 _current_settings: AppSettings | None = None
@@ -168,6 +173,8 @@ def load_settings() -> AppSettings:
             raw.get("max_text_diff_bytes"),
             defaults.max_text_diff_bytes,
         ),
+        editor_font_family=_normalize_font_family(raw.get("editor_font_family")),
+        editor_font_size=_normalize_font_size(raw.get("editor_font_size")),
     )
 
 
@@ -176,6 +183,8 @@ def _to_json(settings: AppSettings) -> dict[str, Any]:
         "binary_extensions": sorted(settings.binary_extensions),
         "ignored_subdirectory_names": sorted(settings.ignored_subdirectory_names),
         "max_text_diff_bytes": settings.max_text_diff_bytes,
+        "editor_font_family": settings.editor_font_family,
+        "editor_font_size": settings.editor_font_size,
     }
 
 
@@ -206,6 +215,20 @@ def _normalize_names(value: Any, fallback: set[str]) -> set[str]:
         if isinstance(item, str) and item.strip()
     }
     return result
+
+
+def _normalize_font_family(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _normalize_font_size(value: Any) -> float:
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and MIN_EDITOR_FONT_SIZE <= value <= MAX_EDITOR_FONT_SIZE
+    ):
+        return float(value)
+    return DEFAULT_EDITOR_FONT_SIZE
 
 
 def _normalize_max_size(value: Any, fallback: int) -> int:

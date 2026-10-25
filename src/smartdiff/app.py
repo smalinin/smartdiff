@@ -16,9 +16,17 @@ from .main_window import MainWindow
 from .models import CompareOptions
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    def _parse_optional(self, arg_string: str):
+        # Only registered slash options are flags; absolute POSIX paths stay positional.
+        if arg_string.startswith("/") and arg_string not in self._option_string_actions:
+            return None
+        return super()._parse_optional(arg_string)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="SmartDiff")
-    parser.add_argument("--d", action="store_true", help="Do not scan subdirectories")
+    parser = _ArgumentParser(description="SmartDiff", prefix_chars="-/")
+    parser.add_argument("--d", "/d", action="store_true", help="Do not scan subdirectories")
     parser.add_argument("paths", nargs="*", help="Two files or two directories")
     return parser
 

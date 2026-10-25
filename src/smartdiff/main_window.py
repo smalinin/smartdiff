@@ -483,6 +483,12 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         save_settings(dialog.settings())
+        self.preview_panel.apply_theme(self.theme)
+        app = QApplication.instance()
+        if app is not None:
+            for window in app.topLevelWidgets():
+                if isinstance(window, DiffWindow):
+                    window.apply_editor_font()
         if self.result is not None:
             self.compare()
 
