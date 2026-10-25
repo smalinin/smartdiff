@@ -50,6 +50,8 @@ from .text_file import (
 DIFF_FONT_FAMILY = "'Consolas', 'Cascadia Mono', 'Menlo', 'SF Mono', 'Liberation Mono', 'DejaVu Sans Mono', monospace"
 DIFF_FONT_SIZE = "14px"
 ACTION_PANEL_WIDTH = 112
+ACTION_BUTTON_SIZE = 24
+ACTION_BUTTON_GAP = 2
 
 
 @dataclass(frozen=True)
@@ -288,6 +290,8 @@ class DiffGutter(QWidget):
         painter.fillRect(self.rect(), _gutter_background_color(self.owner.theme))
         painter.setPen(Qt.PenStyle.NoPen)
 
+        viewport_top, viewport_bottom = self.owner._gutter_viewport_range()
+        painter.setClipRect(QRect(0, viewport_top, self.width(), max(0, viewport_bottom - viewport_top)))
         for block in self.owner.diff_blocks:
             band = self.owner._block_band(block)
             if band is None:
@@ -299,6 +303,7 @@ class DiffGutter(QWidget):
             painter.setPen(QPen(_block_outline(block.tag, self.owner.theme), 1))
             painter.drawPath(_connector_path(self.width(), left_top, left_bottom, right_top, right_bottom))
 
+        painter.setClipping(False)
         painter.setPen(QPen(_gutter_line_color(self.owner.theme), 1))
         painter.drawLine(0, 0, 0, self.height())
         painter.drawLine(self.width() - 1, 0, self.width() - 1, self.height())
@@ -649,11 +654,11 @@ class DiffPreviewPanel(QWidget):
         self._update_diff_counter()
 
     def _scroll_to_diff(self, block: DiffBlock) -> None:
-        target_line = min(v for v in (block.left_start, block.right_start) if v >= 0)
         self._syncing_scroll = True
-        for edit in (self.left_edit, self.right_edit):
-            edit.scroll_to_line(target_line, 3)
-        self._syncing_scroll = False
+        try:
+            _scroll_editors_to_diff(self.left_edit, self.right_edit, block)
+        finally:
+            self._syncing_scroll = False
 
     def _update_diff_counter(self) -> None:
         if not self.diff_blocks:
@@ -1040,6 +1045,7 @@ class DiffWindow(QMainWindow):
     def _update_action_buttons(self) -> None:
         self._action_update_pending = False
         for button in self.action_buttons:
+            button.hide()
             button.deleteLater()
         self.action_buttons.clear()
 
@@ -1053,12 +1059,12 @@ class DiffWindow(QMainWindow):
         occupied: list[tuple[int, int]] = []
         for block in self.diff_blocks:
             y = self._block_y(block)
-            if y is None or y > self.action_panel.height() - 24:
+            if y is None:
                 continue
-
-            y = max(2, y)
             y = self._avoid_button_overlap(y, occupied)
-            occupied.append((y, y + 22))
+            if y is None:
+                continue
+            occupied.append((y, y + ACTION_BUTTON_SIZE))
 
             columns = _button_columns(self.action_panel.width())
             buttons: list[QPushButton] = []
@@ -1066,28 +1072,28 @@ class DiffWindow(QMainWindow):
             if show_delete_buttons and _block_has_side_lines(block, "left"):
                 left_delete = _action_button("x", _delete_tooltip(block, "left"), self.action_panel, "DeleteActionButton")
                 left_delete.clicked.connect(lambda _checked=False, item=block: self.delete_diff_block(item, "left"))
-                left_delete.setGeometry(columns[0], y, 20, 20)
+                left_delete.move(columns[0], y)
                 left_delete.setEnabled(not self.left_edit.isReadOnly())
                 buttons.append(left_delete)
 
             if _block_has_side_lines(block, "left"):
                 copy_right = _action_button("\u00bb", _block_tooltip(block, "left", "right"), self.action_panel, "CopyActionButton")
                 copy_right.clicked.connect(lambda _checked=False, item=block: self.copy_diff_block(item, "left", "right"))
-                copy_right.setGeometry(columns[1], y, 20, 20)
+                copy_right.move(columns[1], y)
                 copy_right.setEnabled(not self.left_edit.isReadOnly() and not self.right_edit.isReadOnly())
                 buttons.append(copy_right)
 
             if _block_has_side_lines(block, "right"):
                 copy_left = _action_button("\u00ab", _block_tooltip(block, "right", "left"), self.action_panel, "CopyActionButton")
                 copy_left.clicked.connect(lambda _checked=False, item=block: self.copy_diff_block(item, "right", "left"))
-                copy_left.setGeometry(columns[2], y, 20, 20)
+                copy_left.move(columns[2], y)
                 copy_left.setEnabled(not self.left_edit.isReadOnly() and not self.right_edit.isReadOnly())
                 buttons.append(copy_left)
 
             if show_delete_buttons and _block_has_side_lines(block, "right"):
                 right_delete = _action_button("x", _delete_tooltip(block, "right"), self.action_panel, "DeleteActionButton")
                 right_delete.clicked.connect(lambda _checked=False, item=block: self.delete_diff_block(item, "right"))
-                right_delete.setGeometry(columns[3], y, 20, 20)
+                right_delete.move(columns[3], y)
                 right_delete.setEnabled(not self.right_edit.isReadOnly())
                 buttons.append(right_delete)
 
@@ -1096,15 +1102,23 @@ class DiffWindow(QMainWindow):
             self.action_buttons.extend(buttons)
         self.action_panel.update()
 
+    def _gutter_viewport_range(self) -> tuple[int, int]:
+        ranges = [
+            self._viewport_range_to_action_panel(edit, 0, edit.viewport().height())
+            for edit in (self.left_edit, self.right_edit)
+        ]
+        return max(0, *(top for top, _ in ranges)), min(
+            self.action_panel.height(), *(bottom for _, bottom in ranges)
+        )
+
     def _block_y(self, block: DiffBlock) -> int | None:
-        left_range = self._line_range_y(self.left_edit, block.left_start, block.left_end)
-        right_range = self._line_range_y(self.right_edit, block.right_start, block.right_end)
-        left_y = _range_center(left_range)
-        right_y = _range_center(right_range)
-        values = [value for value in (left_y, right_y) if value is not None]
-        if not values:
+        band = self._block_band(block)
+        if band is None:
             return None
-        return round(sum(values) / len(values)) - 10
+        viewport_top, viewport_bottom = self._gutter_viewport_range()
+        top = max(viewport_top, min(band[0], band[2]))
+        bottom = min(viewport_bottom, max(band[1], band[3]))
+        return round((top + bottom - ACTION_BUTTON_SIZE) / 2)
 
     def _block_band(self, block: DiffBlock) -> tuple[int, int, int, int] | None:
         left_range = self._line_range_y(self.left_edit, block.left_start, block.left_end)
@@ -1116,6 +1130,9 @@ class DiffWindow(QMainWindow):
         if right_range is None:
             right_range = left_range
         if left_range is None or right_range is None:
+            return None
+        viewport_top, viewport_bottom = self._gutter_viewport_range()
+        if max(left_range[1], right_range[1]) <= viewport_top or min(left_range[0], right_range[0]) >= viewport_bottom:
             return None
         return left_range[0], left_range[1], right_range[0], right_range[1]
 
@@ -1135,10 +1152,7 @@ class DiffWindow(QMainWindow):
         last_geometry = edit.block_viewport_rect(last)
         top = first_geometry.top()
         bottom = last_geometry.bottom() + 1
-        if bottom < 0 or top > edit.viewport().height():
-            return None
-
-        return self._viewport_range_to_action_panel(edit, top, max(top + 16, bottom))
+        return self._viewport_range_to_action_panel(edit, top, max(top + 1, bottom))
 
     def _line_boundary_y(self, edit: CodeEditor, line: int) -> tuple[int, int] | None:
         block_count = edit.document().blockCount()
@@ -1149,8 +1163,6 @@ class DiffWindow(QMainWindow):
             return None
         geometry = edit.block_viewport_rect(block)
         y = geometry.bottom() + 1 if at_end else geometry.top()
-        if y < -24 or y > edit.viewport().height() + 24:
-            return None
         mapped_y, _ = self._viewport_range_to_action_panel(edit, y, y + 1)
         return mapped_y - 1, mapped_y + 1
 
@@ -1159,12 +1171,20 @@ class DiffWindow(QMainWindow):
         mapped_top = self.action_panel.mapFromGlobal(global_position).y()
         return mapped_top, mapped_top + max(1, bottom - top)
 
-    def _avoid_button_overlap(self, y: int, occupied: list[tuple[int, int]]) -> int:
-        result = y
-        for start, end in occupied:
-            if start - 20 <= result <= end + 2:
-                result = end + 3
-        return min(result, max(24, self.action_panel.height() - 24))
+    def _avoid_button_overlap(self, y: int, occupied: list[tuple[int, int]]) -> int | None:
+        viewport_top, viewport_bottom = self._gutter_viewport_range()
+        minimum = viewport_top + ACTION_BUTTON_GAP
+        maximum = viewport_bottom - ACTION_BUTTON_GAP - ACTION_BUTTON_SIZE
+        candidates: list[int] = []
+        # Find the nearest slot that fits the entire row, including its spacing.
+        for start, end in sorted(occupied):
+            slot_end = min(maximum, start - ACTION_BUTTON_GAP - ACTION_BUTTON_SIZE)
+            if minimum <= slot_end:
+                candidates.append(max(minimum, min(y, slot_end)))
+            minimum = max(minimum, end + ACTION_BUTTON_GAP)
+        if minimum <= maximum:
+            candidates.append(max(minimum, min(y, maximum)))
+        return min(candidates, key=lambda candidate: (abs(candidate - y), candidate)) if candidates else None
 
     def _selections_for(self, side: str) -> list[QTextEdit.ExtraSelection]:
         edit = self.left_edit if side == "left" else self.right_edit
@@ -1220,16 +1240,13 @@ class DiffWindow(QMainWindow):
         self._update_diff_counter()
 
     def _scroll_to_diff(self, block: DiffBlock) -> None:
-        target_line = min(
-            value
-            for value in (block.left_start, block.right_start)
-            if value >= 0
-        )
         self._syncing_scroll = True
-        self.left_edit.scroll_to_line(target_line, 3)
-        self.right_edit.scroll_to_line(target_line, 3)
-        self._syncing_scroll = False
+        try:
+            _scroll_editors_to_diff(self.left_edit, self.right_edit, block)
+        finally:
+            self._syncing_scroll = False
         self._schedule_action_buttons_update()
+        self.minimap.update()
 
     def _normalize_current_diff_index(self) -> None:
         if not self.diff_blocks:
@@ -2004,20 +2021,13 @@ def _action_button(
     button.setObjectName(object_name)
     button.setToolTip(tooltip)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
-    button.setFixedSize(22, 22)
+    button.setFixedSize(ACTION_BUTTON_SIZE, ACTION_BUTTON_SIZE)
     return button
 
 
 def _button_columns(width: int) -> list[int]:
-    button_width = 20
-    total = button_width * 4
-    spacing = max(4, (width - total) // 5)
-    mid_extra = 4
-    x0 = spacing
-    x1 = x0 + button_width + spacing
-    x2 = x1 + button_width + spacing + mid_extra
-    x3 = x2 + button_width + spacing
-    return [x0, x1, x2, x3]
+    spacing = max(0, (width - ACTION_BUTTON_SIZE * 4) // 5)
+    return [spacing + index * (ACTION_BUTTON_SIZE + spacing) for index in range(4)]
 
 
 def _block_has_side_lines(block: DiffBlock, side: str) -> bool:
@@ -2029,10 +2039,24 @@ def _block_is_one_sided(block: DiffBlock) -> bool:
     return _block_has_side_lines(block, "left") != _block_has_side_lines(block, "right")
 
 
-def _range_center(value: tuple[int, int] | None) -> int | None:
-    if value is None:
-        return None
-    return round((value[0] + value[1]) / 2)
+def _scroll_editors_to_diff(left: CodeEditor, right: CodeEditor, block: DiffBlock) -> None:
+    positions: list[int] = []
+    for edit, side in ((left, "left"), (right, "right")):
+        start, end = _block_range(block, side)
+        gap = edit.visual_gap_rect(start) if start == end else None
+        if gap is not None:
+            top = gap.top()
+        else:
+            line = max(0, min(start, edit.blockCount() - 1))
+            text_block = edit.document().findBlockByNumber(line)
+            rect = edit.block_viewport_rect(text_block)
+            top = rect.bottom() + 1 if start >= edit.blockCount() else rect.top()
+        positions.append(top + edit.verticalScrollBar().value())
+    context = 3 * max(left.fontMetrics().lineSpacing(), right.fontMetrics().lineSpacing())
+    maximum = min(left.verticalScrollBar().maximum(), right.verticalScrollBar().maximum())
+    target = max(0, min(min(positions) - context, maximum))
+    for edit in (left, right):
+        edit.verticalScrollBar().setValue(target)
 
 
 def _connector_path(
